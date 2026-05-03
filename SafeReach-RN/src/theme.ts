@@ -41,3 +41,21 @@ export const font = {
   '4xl': 32,
   '5xl': 44,
 }
+
+export const lightColors = {
+  bg: '#FFFFFF',
+  surface: '#F7F7F8',
+  surfaceAlt: '#F2F2F4',
+  border: 'rgba(0,0,0,0.08)',
+  borderStrong: 'rgba(0,0,0,0.14)',
+  textPrimary: '#111111',
+  textSecondary: '#6B7280',
+  textMuted: '#8E8E93',
+  textFaint: '#AEAEB2',
+  red: '#CC2222',
+  redSoft: 'rgba(204,34,34,0.08)',
+  ringOuter: 'rgba(204,34,34,0.10)',
+  ringInner: 'rgba(204,34,34,0.18)',
+  green: '#16A34A',
+  greenSoft: 'rgba(22,163,74,0.10)',
+}

@@ -1,252 +1,283 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated,
-  TextInput, KeyboardAvoidingView, Platform, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet, Animated, Easing,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { router } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useApp } from '../../src/AppContext'
 import EmergencyActiveScreen from '../../src/screens/EmergencyActiveScreen'
-import { colors, radius, font } from '../../src/theme'
 
-const TIPS = [
-  { icon: '📞', label: '911', sub: 'Call first' },
-  { icon: '💊', label: 'Narcan', sub: 'If available' },
-  { icon: '↩️', label: 'Recovery', sub: 'On their side' },
-  { icon: '⏱', label: 'Stay', sub: 'Until EMS' },
-]
+const RED = '#CC2222'
+const RING_OUTER = 'rgba(204,34,34,0.10)'
+const RING_INNER = 'rgba(204,34,34,0.18)'
 
 export default function EmergencyTab() {
-  const { emergencyActive, startEmergency, userName, saveUserName } = useApp()
+  const { emergencyActive, startEmergency } = useApp()
   const insets = useSafeAreaInsets()
-  const [time, setTime] = useState(new Date())
-  const [editingName, setEditingName] = useState(false)
-  const [nameInput, setNameInput] = useState(userName)
 
-  // Animated rings
-  const ring1 = useRef(new Animated.Value(0)).current
-  const ring2 = useRef(new Animated.Value(0)).current
-  const ring3 = useRef(new Animated.Value(0)).current
-  const glowPulse = useRef(new Animated.Value(1)).current
+  const ringOuterPulse = useRef(new Animated.Value(0)).current
+  const ringInnerPulse = useRef(new Animated.Value(0)).current
+  const sosPulse = useRef(new Animated.Value(0)).current
+  const [sosArmed, setSosArmed] = useState(false)
+  const lastTapAt = useRef(0)
+  const armTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    const ticker = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(ticker)
-  }, [])
-
-  useEffect(() => {
-    function animateRing(anim: Animated.Value, delay: number) {
-      Animated.loop(
+    function ripple(val: Animated.Value, delay: number, duration: number) {
+      const animation = Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(anim, { toValue: 1, duration: 2400, useNativeDriver: true }),
-          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(val, {
+            toValue: 1,
+            duration,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
         ])
-      ).start()
+      )
+      animation.start()
+      return animation
     }
-    animateRing(ring1, 0)
-    animateRing(ring2, 800)
-    animateRing(ring3, 1600)
 
-    Animated.loop(
+    const outerRipple = ripple(ringOuterPulse, 0, 2200)
+    const innerRipple = ripple(ringInnerPulse, 520, 1850)
+    const buttonPulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(glowPulse, { toValue: 1.06, duration: 1500, useNativeDriver: true }),
-        Animated.timing(glowPulse, { toValue: 0.94, duration: 1500, useNativeDriver: true }),
+        Animated.timing(sosPulse, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.timing(sosPulse, {
+          toValue: 0.28,
+          duration: 260,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.ease),
+        }),
+        Animated.timing(sosPulse, {
+          toValue: 0.62,
+          duration: 220,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.timing(sosPulse, {
+          toValue: 0,
+          duration: 820,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
       ])
-    ).start()
-  }, [])
+    )
+    buttonPulse.start()
+
+    return () => {
+      outerRipple.stop()
+      innerRipple.stop()
+      buttonPulse.stop()
+      if (armTimeout.current) clearTimeout(armTimeout.current)
+    }
+  }, [ringOuterPulse, ringInnerPulse, sosPulse])
 
   function handleSOS() {
+    const now = Date.now()
+    if (now - lastTapAt.current > 650) {
+      lastTapAt.current = now
+      setSosArmed(true)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      if (armTimeout.current) clearTimeout(armTimeout.current)
+      armTimeout.current = setTimeout(() => {
+        setSosArmed(false)
+        lastTapAt.current = 0
+      }, 650)
+      return
+    }
+
+    if (armTimeout.current) clearTimeout(armTimeout.current)
+    setSosArmed(false)
+    lastTapAt.current = 0
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
     startEmergency()
   }
-
-  function saveName() {
-    saveUserName(nameInput.trim())
-    setEditingName(false)
-  }
-
-  const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const dateStr = time.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
-  const dayStr = dateStr.split(',')[0]
 
   if (emergencyActive) {
     return <EmergencyActiveScreen />
   }
 
-  function ringStyle(anim: Animated.Value) {
-    return {
-      opacity: anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.5, 0] }),
-      transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.6] }) }],
-    }
+  const outerRingStyle = {
+    opacity: ringOuterPulse.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.78, 0],
+    }),
+    transform: [{
+      scale: ringOuterPulse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.82, 1.14],
+      }),
+    }],
+  }
+
+  const innerRingStyle = {
+    opacity: ringInnerPulse.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.88, 0.22],
+    }),
+    transform: [{
+      scale: ringInnerPulse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.84, 1.08],
+      }),
+    }],
+  }
+
+  const sosPulseStyle = {
+    transform: [{
+      scale: sosPulse.interpolate({
+        inputRange: [0, 0.28, 0.62, 1],
+        outputRange: [1, 0.985, 1.035, 1.06],
+      }),
+    }],
   }
 
   return (
     <View style={[s.screen, { paddingTop: insets.top }]}>
-      {/* Status bar */}
-      <View style={s.statusBar}>
-        <Text style={s.statusTime}>{timeStr}</Text>
-        <View style={s.logoMark}>
-          <View style={s.logoIcon}>
-            <Text style={s.logoPlus}>+</Text>
-          </View>
-          <Text style={s.logoLabel}>SafeReach</Text>
-        </View>
-        <Text style={s.statusDate}>{dayStr}</Text>
+      <View style={s.header}>
+        <Text style={s.title}>Emergency Help</Text>
+        <Text style={s.subtitle}>Notify your trusted contacts immediately.</Text>
       </View>
 
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* Main */}
-        <View style={s.main}>
-          <View style={s.greeting}>
-            {userName
-              ? <Text style={s.greetText}>Ready, <Text style={{ color: colors.white }}>{userName}</Text></Text>
-              : <Text style={s.greetText}>Stay Ready. Always.</Text>
-            }
-          </View>
-
-          {/* SOS button */}
-          <View style={s.sosContainer}>
-            <Animated.View style={[s.ring, ringStyle(ring1)]} />
-            <Animated.View style={[s.ring, ringStyle(ring2)]} />
-            <Animated.View style={[s.ring, ringStyle(ring3)]} />
-            <Animated.View style={{ transform: [{ scale: glowPulse }] }}>
-              <TouchableOpacity style={s.sosBtn} onPress={handleSOS} activeOpacity={0.85}>
-                <Text style={s.sosText}>SOS</Text>
-                <Text style={s.sosSub}>EMERGENCY</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-
-          <Text style={s.sosHint}>Tap to activate · AI companion connects instantly</Text>
-
-          {/* Join session */}
-          <TouchableOpacity style={s.joinBtn} onPress={() => router.push('/family-join')} activeOpacity={0.7}>
-            <Text style={s.joinBtnText}>👥  Join a family emergency session</Text>
-            <Text style={s.joinBtnArrow}>›</Text>
-          </TouchableOpacity>
+      <View style={s.center}>
+        <View style={s.sosStack}>
+          <Animated.View
+            style={[s.ringOuter, outerRingStyle]}
+          />
+          <Animated.View
+            style={[s.ringInner, innerRingStyle]}
+          />
+          <Animated.View style={sosPulseStyle}>
+            <TouchableOpacity
+              style={[s.sosBtn, sosArmed && s.sosBtnArmed]}
+              onPress={handleSOS}
+              activeOpacity={0.82}
+            >
+              <Text style={s.sosText}>SOS</Text>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
+        <Text style={[s.hint, sosArmed && s.hintArmed]}>
+          {sosArmed ? 'Tap again to start emergency' : 'Double-tap to confirm'}
+        </Text>
+      </View>
 
-        {/* Name prompt */}
-        {!userName && (
-          <View style={s.namePrompt}>
-            {editingName ? (
-              <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-                <View style={s.nameInputRow}>
-                  <TextInput
-                    style={s.nameInput}
-                    value={nameInput}
-                    onChangeText={setNameInput}
-                    onSubmitEditing={saveName}
-                    placeholder="Your name"
-                    placeholderTextColor={colors.textMuted}
-                    autoFocus
-                    returnKeyType="done"
-                  />
-                  <TouchableOpacity style={s.nameSaveBtn} onPress={saveName}>
-                    <Text style={s.nameSaveBtnText}>Save</Text>
-                  </TouchableOpacity>
-                </View>
-              </KeyboardAvoidingView>
-            ) : (
-              <TouchableOpacity style={s.namePromptRow} onPress={() => { setNameInput(''); setEditingName(true) }}>
-                <Text style={{ color: colors.textSecondary, fontSize: font.sm }}>Add your name for emergency alerts</Text>
-                <Text style={{ color: colors.red, fontSize: font.sm, fontWeight: '600' }}>Set →</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Tips */}
-        <View style={s.tipsRow}>
-          {TIPS.map(tip => (
-            <View key={tip.label} style={s.tip}>
-              <Text style={s.tipIcon}>{tip.icon}</Text>
-              <Text style={s.tipLabel}>{tip.label}</Text>
-              <Text style={s.tipSub}>{tip.sub}</Text>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+      <View style={[s.footer, { paddingBottom: insets.bottom + 20 }]}>
+        <Text style={s.footerText}>
+          This app coordinates support. It does not replace{'\n'}emergency services.
+        </Text>
+      </View>
     </View>
   )
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  statusBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 8, paddingTop: 4 },
-  statusTime: { fontSize: 13, fontWeight: '600', color: colors.textMuted, minWidth: 44 },
-  logoMark: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  logoIcon: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center' },
-  logoPlus: { color: '#fff', fontSize: 14, fontWeight: '900', lineHeight: 18 },
-  logoLabel: { fontSize: 14, fontWeight: '800', color: colors.white, letterSpacing: -0.3 },
-  statusDate: { fontSize: 12, color: colors.textMuted, minWidth: 44, textAlign: 'right' },
-  scroll: { flexGrow: 1 },
-  main: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingBottom: 16, gap: 20, paddingTop: 24 },
-  greeting: { alignItems: 'center' },
-  greetText: { fontSize: font.md, color: colors.textMuted, fontWeight: '500' },
-  sosContainer: {
-    width: 220, height: 220,
-    alignItems: 'center', justifyContent: 'center',
+  screen: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
-  ring: {
+  header: {
+    alignItems: 'center',
+    paddingTop: 34,
+    paddingHorizontal: 28,
+    gap: 12,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: '700',
+    color: '#111111',
+    fontFamily: 'System',
+    letterSpacing: 0,
+    lineHeight: 36,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 18,
+    color: '#7C7C84',
+    fontFamily: 'System',
+    lineHeight: 25,
+    textAlign: 'center',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 72,
+    paddingHorizontal: 24,
+  },
+  sosStack: {
+    width: 360,
+    height: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringOuter: {
     position: 'absolute',
-    width: 220, height: 220,
-    borderRadius: 110,
-    borderWidth: 2,
-    borderColor: 'rgba(232,0,13,0.5)',
+    width: 340,
+    height: 340,
+    borderRadius: 170,
+    backgroundColor: RING_OUTER,
+  },
+  ringInner: {
+    position: 'absolute',
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: RING_INNER,
   },
   sosBtn: {
-    width: 170, height: 170, borderRadius: 85,
-    backgroundColor: colors.red,
-    borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.red,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 30,
-    elevation: 20,
-    gap: 2,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: RED,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#CC2222',
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
-  sosText: { fontSize: font['5xl'], fontWeight: '900', color: '#fff', letterSpacing: 3 },
-  sosSub: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2.5 },
-  sosHint: { fontSize: font.sm, color: colors.textMuted, textAlign: 'center', maxWidth: 230, lineHeight: 20 },
-  joinBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 12, paddingHorizontal: 16,
-    backgroundColor: colors.bgCard, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    width: '100%', maxWidth: 340,
+  sosBtnArmed: {
+    backgroundColor: '#B91C1C',
+    transform: [{ scale: 1.04 }],
   },
-  joinBtnText: { flex: 1, fontSize: font.sm, color: colors.textSecondary },
-  joinBtnArrow: { fontSize: 18, color: colors.textMuted },
-  namePrompt: {
-    marginHorizontal: 16, marginBottom: 12,
-    padding: 12,
-    backgroundColor: 'rgba(232,0,13,0.07)',
-    borderWidth: 1, borderColor: colors.redBorder,
-    borderRadius: radius.md,
+  sosText: {
+    fontSize: 42,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: 'System',
+    letterSpacing: 0,
   },
-  namePromptRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  nameInputRow: { flexDirection: 'row', gap: 8 },
-  nameInput: {
-    flex: 1, backgroundColor: '#222',
-    borderWidth: 1, borderColor: colors.redBorder,
-    borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8,
-    fontSize: font.md, color: colors.white,
+  hint: {
+    fontSize: 18,
+    color: '#77777E',
+    fontFamily: 'System',
+    textAlign: 'center',
+    marginTop: 12,
   },
-  nameSaveBtn: { backgroundColor: colors.red, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 8 },
-  nameSaveBtnText: { color: '#fff', fontSize: font.sm, fontWeight: '600' },
-  tipsRow: {
-    flexDirection: 'row', gap: 1,
-    marginBottom: 8, paddingVertical: 12, paddingHorizontal: 16,
-    backgroundColor: '#111111',
-    borderTopWidth: 1, borderTopColor: colors.border,
+  hintArmed: {
+    color: RED,
+    fontWeight: '600',
   },
-  tip: { flex: 1, alignItems: 'center', gap: 3 },
-  tipIcon: { fontSize: 18 },
-  tipLabel: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
-  tipSub: { fontSize: 10, color: colors.textMuted },
+  footer: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingTop: 0,
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#AEAEB2',
+    textAlign: 'center',
+    fontFamily: 'System',
+    lineHeight: 18,
+  },
 })

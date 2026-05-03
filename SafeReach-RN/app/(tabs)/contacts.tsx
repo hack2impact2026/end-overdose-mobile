@@ -1,161 +1,294 @@
 import { useState } from 'react'
 import {
-  View, Text, TouchableOpacity, StyleSheet, FlatList,
-  TextInput, Linking, Alert,
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, radius, font } from '../../src/theme'
+import { font, lightColors, radius } from '../../src/theme'
 
-const STORE_KEY = 'sr_contacts'
+const nearbyResources = [
+  {
+    id: 'naloxone-kit',
+    name: 'Downtown Harm Reduction Center',
+    category: 'Naloxone',
+    distance: '0.2 mi',
+    status: 'Open now',
+    detail: 'Free naloxone kits and overdose response supplies available today.',
+    address: '1224 Mission St',
+  },
+  {
+    id: 'pharmacy',
+    name: 'Market Street Pharmacy',
+    category: 'Pharmacy',
+    distance: '0.4 mi',
+    status: 'Open until 9 PM',
+    detail: 'Ask the pharmacy counter for naloxone nasal spray.',
+    address: '870 Market St',
+  },
+  {
+    id: 'hospital',
+    name: 'City General Emergency',
+    category: 'Hospital',
+    distance: '0.8 mi',
+    status: '24/7',
+    detail: 'Emergency department with overdose response care.',
+    address: '1001 Potrero Ave',
+  },
+]
 
-interface Contact {
-  id: number
-  name: string
-  phone: string
-  relation: string
+type NearbyResource = (typeof nearbyResources)[number]
+
+function openResourceDetail(resource: NearbyResource) {
+  Alert.alert(
+    resource.name,
+    `${resource.category} - ${resource.distance}\n${resource.status}\n\n${resource.detail}\n${resource.address}`,
+    [{ text: 'OK' }],
+  )
 }
 
-async function loadContacts(): Promise<Contact[]> {
-  try {
-    const raw = await AsyncStorage.getItem(STORE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-async function saveContacts(list: Contact[]) {
-  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(list))
-}
-
-export default function ContactsScreen() {
+export default function ResourcesScreen() {
   const insets = useSafeAreaInsets()
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', relation: '' })
-
-  if (!loaded) {
-    loadContacts().then(c => { setContacts(c); setLoaded(true) })
-    return null
-  }
-
-  async function addContact() {
-    if (!form.name.trim()) return
-    const updated = [...contacts, { ...form, id: Date.now() }]
-    setContacts(updated)
-    await saveContacts(updated)
-    setForm({ name: '', phone: '', relation: '' })
-    setAdding(false)
-  }
-
-  async function removeContact(id: number) {
-    Alert.alert('Remove Contact', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove', style: 'destructive',
-        onPress: async () => {
-          const updated = contacts.filter(c => c.id !== id)
-          setContacts(updated)
-          await saveContacts(updated)
-        }
-      }
-    ])
-  }
+  const [selectedGuide, setSelectedGuide] = useState(false)
 
   return (
-    <View style={[s.screen, { paddingTop: insets.top }]}>
-      <View style={s.header}>
-        <Text style={s.title}>Emergency Contacts</Text>
-        <Text style={s.sub}>Alerted when you press SOS</Text>
-      </View>
+    <View style={s.screen}>
+      <ScrollView
+        contentContainerStyle={[
+          s.content,
+          { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 104 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={s.header}>
+          <Text style={s.title}>Resources</Text>
+          <Text style={s.subtitle}>Nearby help and quick guidance</Text>
+        </View>
 
-      <FlatList
-        data={contacts}
-        keyExtractor={c => String(c.id)}
-        contentContainerStyle={s.list}
-        ListEmptyComponent={!adding ? (
-          <View style={s.empty}>
-            <Text style={s.emptyIcon}>👥</Text>
-            <Text style={s.emptyText}>No contacts yet</Text>
-            <Text style={s.emptySub}>Add family and friends who should be notified in an emergency</Text>
-          </View>
-        ) : null}
-        ListFooterComponent={
-          adding ? (
-            <View style={s.formCard}>
-              <TextInput style={s.input} placeholder="Name *" placeholderTextColor={colors.textMuted}
-                value={form.name} onChangeText={v => setForm(f => ({ ...f, name: v }))} autoFocus />
-              <TextInput style={s.input} placeholder="Phone number" placeholderTextColor={colors.textMuted}
-                value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} keyboardType="phone-pad" />
-              <TextInput style={s.input} placeholder="Relation (e.g. Mom, Partner)" placeholderTextColor={colors.textMuted}
-                value={form.relation} onChangeText={v => setForm(f => ({ ...f, relation: v }))} />
-              <View style={s.formBtns}>
-                <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setAdding(false)}>
-                  <Text style={s.btnGhostText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[s.btn, s.btnPrimary, { flex: 2 }]} onPress={addContact}>
-                  <Text style={s.btnPrimaryText}>Save Contact</Text>
-                </TouchableOpacity>
+        <View style={s.sectionIntro}>
+          <Text style={s.sectionTitle}>Closest help near you</Text>
+          <Text style={s.sectionCopy}>Demo nearby results based on the map concept.</Text>
+        </View>
+
+        <View style={s.nearbyList}>
+          {nearbyResources.map((resource) => (
+            <Pressable
+              key={resource.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${resource.name}, ${resource.category}, ${resource.distance}`}
+              onPress={() => openResourceDetail(resource)}
+              style={({ pressed }) => [
+                s.resourceCard,
+                pressed && s.pressed,
+              ]}
+            >
+              <View style={s.resourceTop}>
+                <View style={s.categoryPill}>
+                  <Text style={s.categoryText}>{resource.category}</Text>
+                </View>
+                <Text style={s.distance}>{resource.distance}</Text>
               </View>
+              <Text style={s.resourceName}>{resource.name}</Text>
+              <Text style={s.resourceMeta}>{resource.status}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={s.secondaryGroup}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setSelectedGuide((value) => !value)}
+            style={({ pressed }) => [s.compactCard, pressed && s.pressed]}
+          >
+            <View style={s.compactText}>
+              <Text style={s.compactLabel}>Quick guide</Text>
+              <Text style={s.compactTitle}>How to use naloxone</Text>
+              {selectedGuide ? (
+                <Text style={s.guideCopy}>
+                  Spray one dose into one nostril. Call 911, start rescue breathing if trained,
+                  and give another dose after 2-3 minutes if there is no response.
+                </Text>
+              ) : null}
             </View>
-          ) : (
-            <TouchableOpacity style={s.addBtn} onPress={() => setAdding(true)}>
-              <Text style={s.addBtnText}>＋  Add Contact</Text>
-            </TouchableOpacity>
-          )
-        }
-        renderItem={({ item: c }) => (
-          <View style={s.card}>
-            <View style={s.avatar}>
-              <Text style={s.avatarLetter}>{c.name[0].toUpperCase()}</Text>
+            <Text style={s.chevron}>{selectedGuide ? '-' : '+'}</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => Linking.openURL('tel:911')}
+            style={({ pressed }) => [s.callCard, pressed && s.pressed]}
+          >
+            <View>
+              <Text style={s.callLabel}>Need urgent help?</Text>
+              <Text style={s.callTitle}>Call 911</Text>
             </View>
-            <View style={s.cardInfo}>
-              <Text style={s.cardName}>{c.name}</Text>
-              <Text style={s.cardMeta}>{c.relation ? `${c.relation} · ` : ''}{c.phone}</Text>
-            </View>
-            {c.phone ? (
-              <TouchableOpacity style={s.callBtn} onPress={() => Linking.openURL(`tel:${c.phone}`)}>
-                <Text style={s.callBtnText}>📞</Text>
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity style={s.removeBtn} onPress={() => removeContact(c.id)}>
-              <Text style={s.removeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
+            <Text style={s.callAction}>Call</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   )
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  header: { padding: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
-  title: { fontSize: font['2xl'], fontWeight: '700', color: colors.white, marginBottom: 4 },
-  sub: { fontSize: font.sm, color: colors.textMuted },
-  list: { padding: 16, gap: 10, flexGrow: 1 },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 40 },
-  emptyIcon: { fontSize: 40, marginBottom: 4 },
-  emptyText: { fontSize: font.lg, fontWeight: '600', color: colors.textSecondary },
-  emptySub: { fontSize: font.sm, color: colors.textMuted, lineHeight: 20, textAlign: 'center' },
-  card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.redDim, borderWidth: 1, borderColor: colors.redBorder, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarLetter: { fontSize: 18, fontWeight: '700', color: colors.red },
-  cardInfo: { flex: 1, minWidth: 0 },
-  cardName: { fontSize: font.md, fontWeight: '600', color: colors.white, marginBottom: 2 },
-  cardMeta: { fontSize: font.xs, color: colors.textMuted },
-  callBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.greenDim, borderWidth: 1, borderColor: colors.greenBorder, alignItems: 'center', justifyContent: 'center' },
-  callBtnText: { fontSize: 16 },
-  removeBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  removeBtnText: { fontSize: 12, color: colors.textMuted },
-  formCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.border2, gap: 10 },
-  input: { backgroundColor: '#222', borderWidth: 1, borderColor: colors.border2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: font.md, color: colors.white },
-  formBtns: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  btn: { borderRadius: radius.md, padding: 12, flex: 1, alignItems: 'center' },
-  btnPrimary: { backgroundColor: colors.red },
-  btnPrimaryText: { color: '#fff', fontSize: font.sm, fontWeight: '600' },
-  btnGhost: { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: colors.border2 },
-  btnGhostText: { color: colors.textSecondary, fontSize: font.sm, fontWeight: '600' },
-  addBtn: { alignItems: 'center', justifyContent: 'center', padding: 14, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.12)', borderRadius: radius.lg, borderStyle: 'dashed' },
-  addBtnText: { fontSize: font.md, fontWeight: '600', color: colors.textSecondary },
+  screen: {
+    flex: 1,
+    backgroundColor: lightColors.bg,
+  },
+  content: {
+    paddingHorizontal: 20,
+  },
+  header: {
+    marginBottom: 28,
+  },
+  title: {
+    color: lightColors.textPrimary,
+    fontSize: font['3xl'],
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  subtitle: {
+    color: lightColors.textSecondary,
+    fontSize: font.md,
+    lineHeight: 21,
+  },
+  sectionIntro: {
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: lightColors.textPrimary,
+    fontSize: font.xl,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  sectionCopy: {
+    color: lightColors.textSecondary,
+    fontSize: font.sm,
+    lineHeight: 18,
+  },
+  nearbyList: {
+    gap: 10,
+  },
+  resourceCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: lightColors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+  },
+  pressed: {
+    opacity: 0.72,
+  },
+  resourceTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  categoryPill: {
+    backgroundColor: lightColors.redSoft,
+    borderRadius: radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  categoryText: {
+    color: lightColors.red,
+    fontSize: font.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  distance: {
+    color: lightColors.textPrimary,
+    fontSize: font.md,
+    fontWeight: '700',
+  },
+  resourceName: {
+    color: lightColors.textPrimary,
+    fontSize: font.lg,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  resourceMeta: {
+    color: lightColors.textSecondary,
+    fontSize: font.sm,
+    lineHeight: 18,
+  },
+  secondaryGroup: {
+    gap: 10,
+    marginTop: 18,
+  },
+  compactCard: {
+    alignItems: 'center',
+    backgroundColor: lightColors.surface,
+    borderColor: lightColors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    padding: 16,
+  },
+  compactText: {
+    flex: 1,
+  },
+  compactLabel: {
+    color: lightColors.textSecondary,
+    fontSize: font.xs,
+    fontWeight: '700',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  compactTitle: {
+    color: lightColors.textPrimary,
+    fontSize: font.md,
+    fontWeight: '700',
+  },
+  guideCopy: {
+    color: lightColors.textSecondary,
+    fontSize: font.sm,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  chevron: {
+    color: lightColors.red,
+    fontSize: 24,
+    fontWeight: '400',
+    width: 24,
+    textAlign: 'center',
+  },
+  callCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFF7F7',
+    borderColor: 'rgba(204,34,34,0.14)',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  callLabel: {
+    color: lightColors.textSecondary,
+    fontSize: font.xs,
+    fontWeight: '700',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  callTitle: {
+    color: lightColors.textPrimary,
+    fontSize: font.md,
+    fontWeight: '700',
+  },
+  callAction: {
+    color: lightColors.red,
+    fontSize: font.md,
+    fontWeight: '700',
+  },
 })
