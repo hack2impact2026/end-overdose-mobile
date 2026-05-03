@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "SafeReach",
+    "slug": "safereach",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "safereach",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.safereach.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SafeReach uses the camera to scan for symptoms and analyze the situation.",
+        "NSMicrophoneUsageDescription": "SafeReach uses the microphone to let family members send voice notes.",
+        "NSLocationWhenInUseUsageDescription": "SafeReach uses your location to send help to the right place and show nearby hospitals.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "SafeReach uses your location to keep emergency contacts updated during an active session."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0A"
+      },
+      "package": "com.safereach.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "SafeReach uses the camera to scan for symptoms."
+        }
+      ],
+      "expo-av"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "newArchEnabled": true
+  }
+}
