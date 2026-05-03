@@ -317,7 +317,9 @@ export default function ProfileScreen() {
     ? { latitude: userLoc.lat, longitude: userLoc.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 }
     : { latitude: UCLA_CENTER.lat, longitude: UCLA_CENTER.lng, latitudeDelta: 0.025, longitudeDelta: 0.025 }
 
-  const filteredPlaces = activeFilter ? places.filter(p => p.type === activeFilter) : places
+  const filteredPlaces = (activeFilter ? places.filter(p => p.type === activeFilter) : places)
+    .slice()
+    .sort((a, b) => parseFloat(a.dist ?? '9999') - parseFloat(b.dist ?? '9999'))
   const visiblePlaces = filteredPlaces.slice(0, 6)
   const shouldShowVolunteerLocation = isVolunteer && alertSettings.shareVolunteerLocation
 
