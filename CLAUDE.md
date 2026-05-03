@@ -61,6 +61,18 @@ SafeReach-RN/
 - **Data:** Duplicates haversine + Overpass fetch from `map.tsx` — do not consolidate without confirming `map.tsx` is safe to touch
 - **Do not touch:** `app/(tabs)/map.tsx` (working, dark-themed, teammate-adjacent)
 
+## Code Architecture Goal
+
+The repository is organized into clean isolation layers. Each layer should mostly talk only to adjacent layers:
+
+| Layer | Owns | Should not touch |
+|---|---|---|
+| **Visual design** | Colors, spacing, typography, layout polish | Backend/API logic |
+| **Frontend UI** | Components, screens, forms, state | Backend internals |
+| **Frontend API contract** | Request/response shapes, `src/lib/api.js` | Styling |
+| **Backend routes** | Endpoints, validation, JSON responses | UI layout |
+| **Backend services / AI** | Prompts, parsing, mock/database logic | Frontend styling |
+
 ## Constraints
 
 - Never touch a file owned by another teammate without explicit permission

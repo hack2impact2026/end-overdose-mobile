@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  Share, Linking, Platform, Image,
+  View, Text, TouchableOpacity, StyleSheet,
+  Share, Linking, Platform, Image, Animated, Easing, Pressable,
+  StyleProp, ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
-import * as Clipboard from 'expo-clipboard'
 import { StatusBar } from 'expo-status-bar'
-import { router } from 'expo-router'
 import { useApp } from '../AppContext'
 import ChatInterface from '../components/ChatInterface'
 import EmergencyBackButton from '../components/EmergencyBackButton'
@@ -18,24 +18,19 @@ import { lightColors as L } from '../theme'
 const CHECK_RESPONSE_IMAGE = require('../../assets/emergency-hero.png')
 
 type Step = 1 | 2 | 3 | 'guidance'
+type GuidanceMode = 'awake' | 'emergency'
 
 const STEPS: { n: 1 | 2 | 3; key: string; label: string }[] = [
-  { n: 1, key: 'check', label: 'Check' },
-  { n: 2, key: 'act', label: 'Act' },
-  { n: 3, key: 'stay', label: 'Stay' },
+  { n: 1, key: 'diagnosis', label: 'Diagnosis' },
+  { n: 2, key: 'treatment', label: 'Treatment' },
+  { n: 3, key: 'guide', label: 'AI Guide' },
 ]
 
-const STAY_ACTIONS = [
-  'Keep them on their side',
-  'Watch breathing',
-  'Do not leave',
-]
-
-const DONT_ACTIONS = [
-  'Do not let them sleep it off',
-  'Do not put them in a cold shower',
-  'Do not give food, drink, alcohol, or stimulants',
-  'Do not leave because they woke up',
+const NARCAN_ACTIONS = [
+  'Call 911 now',
+  'Lay them on their back briefly',
+  'Spray into one nostril and press fully',
+  'Put them on their side once breathing is supported',
 ]
 
 function elapsed(secs: number) {
@@ -44,7 +39,7 @@ function elapsed(secs: number) {
 
 export default function EmergencyActiveScreen() {
   const {
-    sessionCode, endEmergency, chatHistory, setChatHistory,
+    sessionCode, endEmergency, setChatHistory,
     naloxoneGiven, setNaloxoneGiven, userName, location, setLocation, visionResult,
   } = useApp()
   const insets = useSafeAreaInsets()
@@ -54,21 +49,17 @@ export default function EmergencyActiveScreen() {
   const [secs, setSecs] = useState(0)
   const [familyMembers, setFamilyMembers] = useState<any[]>([])
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [alertShared, setAlertShared] = useState(false)
-  const [showVision, setShowVision] = useState(!!visionResult)
-  const [chatOpen, setChatOpen] = useState(true)
+  const [chatExpanded, setChatExpanded] = useState(false)
   const [naloxoneAt, setNaloxoneAt] = useState<number | null>(null)
+  const [guidanceMode, setGuidanceMode] = useState<GuidanceMode>('emergency')
 
   const locationRef = useRef(location)
-  const chatHistoryRef = useRef(chatHistory)
   const naloxoneRef = useRef(naloxoneGiven)
   const prevFamilyCount = useRef(0)
 
   useEffect(() => { locationRef.current = location }, [location])
-  useEffect(() => { chatHistoryRef.current = chatHistory }, [chatHistory])
   useEffect(() => { naloxoneRef.current = naloxoneGiven }, [naloxoneGiven])
-  useEffect(() => { if (visionResult) setShowVision(true) }, [visionResult])
 
   // Timer
   useEffect(() => {
@@ -144,13 +135,6 @@ export default function EmergencyActiveScreen() {
     } catch {}
   }
 
-  async function copyCode() {
-    if (!sessionCode) return
-    await Clipboard.setStringAsync(sessionCode)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   function handleEndEmergency() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     endEmergency()
@@ -161,10 +145,16 @@ export default function EmergencyActiveScreen() {
     setStep(next)
   }
 
+  function openGuidance(mode: GuidanceMode) {
+    setGuidanceMode(mode)
+    advance('guidance')
+  }
+
   function handleStepBack() {
-    if (step === 2) setStep(1)
+    if (step === 1) setIntroVisible(true)
+    else if (step === 2) setStep(1)
     else if (step === 3) setStep(2)
-    // step 1 and guidance: back button visible but tap is no-op (hold exits)
+    // guidance keeps the hold-to-exit control; flow back is only shown in the 3-step path
   }
 
   function call911() {
@@ -231,21 +221,19 @@ export default function EmergencyActiveScreen() {
           <View style={s.stepArea}>
             <StepCard
               step={step}
-              secs={secs}
-              naloxoneAt={naloxoneAt}
-              onAdvance={advance}
+              onOpenGuidance={openGuidance}
+              onStartTreatment={() => advance(2)}
               onCall911={call911}
-              onNaloxoneYes={() => { setNaloxoneGiven(true); setNaloxoneAt(secs); advance(3) }}
+              onNaloxoneComplete={() => {
+                setNaloxoneGiven(true)
+                setNaloxoneAt(secs)
+                openGuidance('emergency')
+              }}
             />
             <StepBottomControls
               current={step}
               bottom={insets.bottom + 24}
               onBack={handleStepBack}
-              onNext={() => {
-                if (step === 1) advance(2)
-                else if (step === 2) advance(3)
-                else advance('guidance')
-              }}
             />
           </View>
         </>
@@ -256,17 +244,13 @@ export default function EmergencyActiveScreen() {
           onGetLocation={fetchGPS}
           alertShared={alertShared}
           onAlertContacts={shareAlert}
-          copied={copied}
+          mode={guidanceMode}
           sessionCode={sessionCode}
-          onCopyCode={copyCode}
           naloxoneGiven={naloxoneGiven}
           naloxoneElapsedSecs={naloxoneAt === null ? null : secs - naloxoneAt}
-          onCamera={() => router.push('/camera')}
-          showVision={showVision}
           visionResult={visionResult}
-          onCloseVision={() => setShowVision(false)}
-          chatOpen={chatOpen}
-          onToggleChat={() => setChatOpen(o => !o)}
+          chatExpanded={chatExpanded}
+          onToggleChatExpanded={() => setChatExpanded(v => !v)}
           onEnd={handleEndEmergency}
           bottomInset={insets.bottom}
         />
@@ -288,6 +272,100 @@ function EmergencyIntroScreen({
   onNeedHelp: () => void
   onReadyToHelp: () => void
 }) {
+  const introFade = useRef(new Animated.Value(0)).current
+  const introLift = useRef(new Animated.Value(20)).current
+  const iconFloat = useRef(new Animated.Value(0)).current
+  const iconPop = useRef(new Animated.Value(0.88)).current
+  const auraPulse = useRef(new Animated.Value(0)).current
+  const buttonLift = useRef(new Animated.Value(18)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(introFade, {
+        toValue: 1,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(introLift, {
+        toValue: 0,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(iconPop, {
+        toValue: 1,
+        friction: 6,
+        tension: 88,
+        useNativeDriver: true,
+      }),
+      Animated.timing(buttonLift, {
+        toValue: 0,
+        delay: 130,
+        duration: 460,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start()
+
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(iconFloat, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconFloat, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    )
+    const auraLoop = Animated.loop(
+      Animated.timing(auraPulse, {
+        toValue: 1,
+        duration: 2400,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      })
+    )
+    floatLoop.start()
+    auraLoop.start()
+    return () => {
+      floatLoop.stop()
+      auraLoop.stop()
+    }
+  }, [auraPulse, buttonLift, iconFloat, iconPop, introFade, introLift])
+
+  const auraStyle = {
+    opacity: auraPulse.interpolate({
+      inputRange: [0, 0.72, 1],
+      outputRange: [0.22, 0.08, 0.22],
+    }),
+    transform: [{
+      scale: auraPulse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.82, 1.16],
+      }),
+    }],
+  }
+
+  const iconMotion = {
+    opacity: introFade,
+    transform: [
+      { scale: iconPop },
+      {
+        translateY: iconFloat.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -8],
+        }),
+      },
+    ],
+  }
+
   return (
     <View style={[s.introScreen, { paddingTop: topInset, paddingBottom: bottomInset + 28 }]}>
       <StatusBar style="light" backgroundColor="#EF0026" />
@@ -299,18 +377,67 @@ function EmergencyIntroScreen({
       />
       <Text style={[s.exitBackHint, s.flowExitBackHint, s.exitBackHintOnRed]}>HOLD TO EXIT</Text>
       <View style={s.introBody}>
-        <Text style={s.introIcon}>🚑</Text>
-        <Text style={s.introTitle}>Take a deep breath{'\n'}EMS is on the way</Text>
-        <View style={s.introActions}>
-          <TouchableOpacity style={s.introButton} onPress={onNeedHelp} activeOpacity={0.86}>
+        <Animated.View pointerEvents="none" style={[s.introAura, auraStyle]} />
+        <Animated.View pointerEvents="none" style={[s.introAuraInner, auraStyle]} />
+        <Animated.View style={iconMotion}>
+          <Text style={s.introIcon}>🚑</Text>
+        </Animated.View>
+        <Animated.View style={{ opacity: introFade, transform: [{ translateY: introLift }] }}>
+          <Text style={s.introTitle}>Take a deep breath{'\n'}EMS is on the way</Text>
+        </Animated.View>
+        <Animated.View style={[s.introActions, { opacity: introFade, transform: [{ translateY: buttonLift }] }]}>
+          <HoverButton
+            style={s.introButton}
+            hoverStyle={s.introButtonHover}
+            pressedStyle={s.introButtonPressed}
+            onPress={onNeedHelp}
+            accessibilityLabel="I need help"
+          >
             <Text style={s.introButtonText}>I NEED HELP</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.introButton} onPress={onReadyToHelp} activeOpacity={0.86}>
+          </HoverButton>
+          <HoverButton
+            style={s.introButton}
+            hoverStyle={s.introButtonHover}
+            pressedStyle={s.introButtonPressed}
+            onPress={onReadyToHelp}
+            accessibilityLabel="I'm ready to help"
+          >
             <Text style={s.introButtonText}>I'M READY TO HELP</Text>
-          </TouchableOpacity>
-        </View>
+          </HoverButton>
+        </Animated.View>
       </View>
     </View>
+  )
+}
+
+function HoverButton({
+  children,
+  style,
+  hoverStyle,
+  pressedStyle,
+  onPress,
+  accessibilityLabel,
+}: {
+  children: ReactNode
+  style: StyleProp<ViewStyle>
+  hoverStyle?: StyleProp<ViewStyle>
+  pressedStyle?: StyleProp<ViewStyle>
+  onPress: () => void | Promise<void>
+  accessibilityLabel?: string
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={({ hovered, pressed }) => [
+        style,
+        hovered && hoverStyle,
+        pressed && pressedStyle,
+      ]}
+    >
+      {children}
+    </Pressable>
   )
 }
 
@@ -347,58 +474,56 @@ function StepBottomControls({
   current,
   bottom,
   onBack,
-  onNext,
 }: {
   current: 1 | 2 | 3
   bottom: number
   onBack: () => void
-  onNext: () => void
 }) {
   return (
     <View style={[s.bottomControls, { bottom }]}>
-      {current === 1 ? (
-        <View style={s.stepBackPlaceholder} />
-      ) : (
-        <TouchableOpacity
-          style={s.stepBackCircle}
-          onPress={onBack}
-          activeOpacity={0.82}
-          accessibilityRole="button"
-          accessibilityLabel="Previous step"
-        >
-          <Text style={s.stepBackChevron}>‹</Text>
-        </TouchableOpacity>
-      )}
+      <HoverButton
+        style={s.stepBackCircle}
+        hoverStyle={s.hoverLift}
+        pressedStyle={s.hoverPressed}
+        onPress={onBack}
+        accessibilityLabel={current === 1 ? 'Back to emergency intro' : 'Previous step'}
+      >
+        <Text style={s.stepBackChevron}>‹</Text>
+      </HoverButton>
       <View style={s.bottomCheckpoints}>
         <StepPill current={current} />
       </View>
-      <TouchableOpacity
-        style={s.nextCircle}
-        onPress={onNext}
-        activeOpacity={0.82}
-        accessibilityRole="button"
-        accessibilityLabel="Next step"
-      >
-        <Text style={s.nextChevron}>›</Text>
-      </TouchableOpacity>
     </View>
   )
 }
 
 interface StepCardProps {
   step: 1 | 2 | 3
-  secs: number
-  naloxoneAt: number | null
-  onAdvance: (next: Step) => void
+  onOpenGuidance: (mode: GuidanceMode) => void
+  onStartTreatment: () => void
   onCall911: () => void
-  onNaloxoneYes: () => void
+  onNaloxoneComplete: () => void
 }
 
-function StepCard({ step, secs, naloxoneAt, onAdvance, onCall911, onNaloxoneYes }: StepCardProps) {
+function StepCard({ step, onOpenGuidance, onStartTreatment, onCall911, onNaloxoneComplete }: StepCardProps) {
+  const [narcanDone, setNarcanDone] = useState<Record<string, boolean>>({})
+  const allNarcanDone = NARCAN_ACTIONS.every(action => narcanDone[action])
+
+  function toggleNarcanAction(action: string) {
+    Haptics.selectionAsync()
+    setNarcanDone(prev => {
+      const nextDone = !prev[action]
+      if (nextDone && action === NARCAN_ACTIONS[0]) onCall911()
+      return { ...prev, [action]: nextDone }
+    })
+  }
+
   if (step === 1) {
     return (
       <View style={s.stepCanvas}>
-        <Text style={s.stepTitle}>Is this an Overdose?</Text>
+        <Text style={s.stepTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+          Is this an Overdose?
+        </Text>
         <Image
           source={CHECK_RESPONSE_IMAGE}
           style={s.stepImage}
@@ -406,75 +531,64 @@ function StepCard({ step, secs, naloxoneAt, onAdvance, onCall911, onNaloxoneYes 
         />
         <View style={s.checklist}>
           <Text style={s.checklistTitle}>Check them now</Text>
-          <Text style={s.checklistItem}>Tap their shoulders.</Text>
-          <Text style={s.checklistItem}>Shout their name.</Text>
+          <Text style={s.checklistItem}>Tap them and shout their name.</Text>
           <Text style={s.checklistItem}>Look for slow or no breathing.</Text>
         </View>
         <View style={s.responseChoices}>
-          <TouchableOpacity style={s.responseChoice} onPress={() => onAdvance('guidance')} activeOpacity={0.78}>
+          <HoverButton style={s.responseChoice} hoverStyle={s.hoverLift} pressedStyle={s.hoverPressed} onPress={() => onOpenGuidance('awake')}>
             <Text style={s.responseChoiceText}>Awake</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.responseChoice} onPress={() => onAdvance(2)} activeOpacity={0.78}>
-            <Text style={s.responseChoiceText}>Barely responsive</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.responseChoice, s.responseChoiceUrgent]} onPress={() => onAdvance(2)} activeOpacity={0.82}>
-            <Text style={[s.responseChoiceText, s.responseChoiceUrgentText]}>Unresponsive</Text>
-          </TouchableOpacity>
+          </HoverButton>
+          <HoverButton
+            style={s.responseChoice}
+            hoverStyle={s.hoverLift}
+            pressedStyle={s.hoverPressed}
+            onPress={() => {
+              onStartTreatment()
+            }}
+          >
+            <Text style={s.responseChoiceText}>Unresponsive</Text>
+          </HoverButton>
         </View>
       </View>
     )
   }
   if (step === 2) {
     return (
-      <View style={s.card}>
-        <Text style={s.cardEyebrow}>Step 2 of 3</Text>
-        <Text style={s.cardTitle}>Call 911. Give naloxone.</Text>
-        <Text style={s.cardBody}>Naloxone is safe to use if you suspect an opioid overdose.</Text>
-        <View style={s.actionChecklist}>
-          <Text style={s.checkItem}>1. Call 911 now</Text>
-          <Text style={s.checkItem}>2. Lay them on their back briefly</Text>
-          <Text style={s.checkItem}>3. Spray into one nostril and press fully</Text>
-          <Text style={s.checkItem}>4. Put them on their side once breathing is supported</Text>
+      <View style={s.stepCanvas}>
+        <Text style={s.stepTitle}>Administer Narcan{'\n'}(Naloxone)</Text>
+        <Text style={s.narcanSubtitle}>Tap each action as you complete it.</Text>
+        <View style={s.narcanChecklist}>
+          {NARCAN_ACTIONS.map((action) => {
+            const done = !!narcanDone[action]
+            return (
+              <Pressable
+                key={action}
+                style={s.narcanRow}
+                onPress={() => toggleNarcanAction(action)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: done }}
+              >
+                <View style={[s.narcanDot, done && s.narcanDotDone]} />
+                <Text style={[s.narcanText, done && s.narcanTextDone]}>{action}</Text>
+              </Pressable>
+            )
+          })}
         </View>
-        <View style={s.cardActions}>
-          <TouchableOpacity style={[s.btn, s.btnEmergency]} onPress={onCall911} activeOpacity={0.85}>
-            <Text style={s.btnPrimaryText}>CALL 911</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={onNaloxoneYes} activeOpacity={0.85}>
-            <Text style={s.btnPrimaryText}>I gave naloxone</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => onAdvance(3)} activeOpacity={0.7}>
-            <Text style={s.btnSecondaryText}>No naloxone available</Text>
-          </TouchableOpacity>
-        </View>
+        <Pressable
+          style={[s.completeBtn, allNarcanDone && s.completeBtnReady]}
+          onPress={onNaloxoneComplete}
+          disabled={!allNarcanDone}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !allNarcanDone }}
+        >
+          <Text style={[s.completeBtnText, allNarcanDone && s.completeBtnTextReady]}>
+            {allNarcanDone ? 'Completed' : 'Please Complete'}
+          </Text>
+        </Pressable>
       </View>
     )
   }
-  const naloxoneElapsedSecs = naloxoneAt === null ? null : secs - naloxoneAt
-  return (
-    <View style={s.card}>
-      <Text style={s.cardEyebrow}>Step 3 of 3</Text>
-      <Text style={s.cardTitle}>Keep airway safe</Text>
-      <Text style={s.cardBody}>
-        {naloxoneElapsedSecs === null
-          ? 'Place them on their side. Keep watching breathing.'
-          : `${elapsed(naloxoneElapsedSecs)} since naloxone. If no response after 2-3 minutes, give another dose if available.`}
-      </Text>
-      <View style={s.actionChecklist}>
-        {STAY_ACTIONS.map(action => (
-          <Text key={action} style={s.checkItem}>{action}</Text>
-        ))}
-      </View>
-      <View style={s.cardActions}>
-        <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={onNaloxoneYes} activeOpacity={0.85}>
-          <Text style={s.btnPrimaryText}>Gave another dose</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => onAdvance('guidance')} activeOpacity={0.7}>
-          <Text style={s.btnSecondaryText}>Continue to resources & AI guide</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  )
+  return null
 }
 
 interface MorePanelProps {
@@ -483,105 +597,75 @@ interface MorePanelProps {
   onGetLocation: () => void
   alertShared: boolean
   onAlertContacts: () => void
-  copied: boolean
+  mode: GuidanceMode
   sessionCode: string | null
-  onCopyCode: () => void
   naloxoneGiven: boolean
   naloxoneElapsedSecs: number | null
-  onCamera: () => void
-  showVision: boolean
   visionResult: string | null
-  onCloseVision: () => void
-  chatOpen: boolean
-  onToggleChat: () => void
+  chatExpanded: boolean
+  onToggleChatExpanded: () => void
   onEnd: () => void
   bottomInset: number
 }
 
 function MoreGuidancePanel(p: MorePanelProps) {
+  const isAwake = p.mode === 'awake'
+
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 20 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={s.guidanceHeading}>Resources & AI guide</Text>
-        <Text style={s.guidanceSub}>The 3 emergency steps are complete. Keep them on their side, watch breathing, and use the guides or assistant below while help is on the way.</Text>
+    <View style={s.guidanceScreen}>
+      <View style={s.guidanceExitRow}>
+        <HoverButton
+          style={s.guidanceExitButton}
+          hoverStyle={s.hoverLift}
+          pressedStyle={s.hoverPressed}
+          onPress={p.onEnd}
+          accessibilityLabel="Exit emergency session"
+        >
+          <Text style={s.guidanceExitText}>Exit</Text>
+        </HoverButton>
+      </View>
+      {!p.chatExpanded && (
+        <View style={s.guidanceTop}>
+          <Text style={s.guidanceHeading}>Monitor them</Text>
+          <Text style={s.guidanceSub}>Stay close. Watch for changes.</Text>
 
-        <View style={s.priorityCard}>
-          <Text style={s.priorityTitle}>Emergency guide</Text>
-          <Text style={s.priorityText}>1. Call 911</Text>
-          <Text style={s.priorityText}>2. Give naloxone</Text>
-          <Text style={s.priorityText}>3. Keep them breathing</Text>
-        </View>
-
-        <View style={s.actionGrid}>
-          <TouchableOpacity style={s.actionTile} onPress={p.onGetLocation} activeOpacity={0.7}>
-            <Text style={s.actionTileIcon}>📍</Text>
-            <Text style={s.actionTileText}>
-              {p.gpsLoading ? 'Locating…' : p.location ? 'GPS active' : 'Get location'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.actionTile, s.actionTilePrimary]} onPress={p.onAlertContacts} activeOpacity={0.85}>
-            <Text style={s.actionTileIcon}>📤</Text>
-            <Text style={[s.actionTileText, { color: '#fff' }]}>
-              {p.alertShared ? 'Alert sent' : 'Alert contacts'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.actionTile} onPress={p.onCopyCode} activeOpacity={0.7}>
-            <Text style={s.actionTileIcon}>🔑</Text>
-            <Text style={s.actionTileText}>{p.copied ? 'Copied!' : p.sessionCode}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {p.naloxoneGiven && (
-          <View style={s.statusRow}>
-            <Text style={s.statusRowText}>
-              Naloxone given{p.naloxoneElapsedSecs === null ? '' : ` - ${elapsed(p.naloxoneElapsedSecs)} ago`}
-            </Text>
+          <View style={s.priorityCard}>
+            <Text style={s.priorityTitle}>3-step plan</Text>
+            {isAwake ? (
+              <>
+                <Text style={s.priorityText}>1. Keep them awake</Text>
+                <Text style={s.priorityText}>2. Watch breathing</Text>
+                <Text style={s.priorityText}>3. Call 911 if worse</Text>
+              </>
+            ) : (
+              <>
+                <Text style={s.priorityText}>1. Keep them on their side</Text>
+                <Text style={s.priorityText}>2. Watch breathing closely</Text>
+                <Text style={s.priorityText}>3. Give second dose if no response in 3 min</Text>
+              </>
+            )}
           </View>
-        )}
 
-        <View style={s.dontCard}>
-          <Text style={s.dontTitle}>Do not</Text>
-          {DONT_ACTIONS.map(action => (
-            <Text key={action} style={s.dontText}>{action}</Text>
-          ))}
-        </View>
-
-        <TouchableOpacity style={s.linkRow} onPress={p.onCamera} activeOpacity={0.7}>
-          <Text style={s.linkRowIcon}>📷</Text>
-          <Text style={s.linkRowText}>Scan for symptoms with AI vision</Text>
-          <Text style={s.linkRowArrow}>›</Text>
-        </TouchableOpacity>
-
-        {p.showVision && p.visionResult && (
-          <View style={s.visionCard}>
-            <View style={s.visionHeader}>
-              <Text style={s.visionTitle}>Scan result</Text>
-              <TouchableOpacity onPress={p.onCloseVision}><Text style={s.visionClose}>✕</Text></TouchableOpacity>
+          {p.naloxoneGiven && (
+            <View style={s.statusRow}>
+              <Text style={s.statusRowText}>
+                Naloxone given{p.naloxoneElapsedSecs === null ? '' : ` - ${elapsed(p.naloxoneElapsedSecs)} ago`}
+              </Text>
             </View>
-            <Text style={s.visionText}>{p.visionResult}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity style={s.linkRow} onPress={p.onToggleChat} activeOpacity={0.7}>
-          <Text style={s.linkRowIcon}>💬</Text>
-          <Text style={s.linkRowText}>{p.chatOpen ? 'Hide AI guide' : 'Open AI guide'}</Text>
-          <Text style={s.linkRowArrow}>{p.chatOpen ? '⌄' : '›'}</Text>
-        </TouchableOpacity>
-
-        {p.chatOpen && (
-          <View style={s.chatWrap}>
-            <ChatInterface />
-          </View>
-        )}
-
-        <TouchableOpacity style={s.endSession} onPress={p.onEnd} activeOpacity={0.7}>
-          <Text style={s.endSessionText}>End session</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          )}
+        </View>
+      )}
+      <View style={[
+        s.chatWrap,
+        p.chatExpanded && s.chatWrapExpanded,
+        { marginBottom: p.bottomInset + 12 },
+      ]}>
+        <ChatInterface
+          guidanceMode={p.mode}
+          expanded={p.chatExpanded}
+          onToggleExpanded={p.onToggleChatExpanded}
+        />
+      </View>
     </View>
   )
 }
@@ -600,6 +684,23 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 48,
     gap: 30,
+    overflow: 'hidden',
+  },
+  introAura: {
+    position: 'absolute',
+    width: 430,
+    height: 430,
+    borderRadius: 215,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    top: '20%',
+  },
+  introAuraInner: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    top: '27%',
   },
   introIcon: {
     fontSize: 124,
@@ -631,12 +732,34 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
+  introButtonHover: {
+    transform: [{ translateY: -3 }, { scale: 1.02 }],
+    shadowOpacity: 1,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 10,
+  },
+  introButtonPressed: {
+    transform: [{ translateY: 1 }, { scale: 0.985 }],
+    backgroundColor: '#FFF2F4',
+  },
   introButtonText: {
     color: '#EF0026',
     fontSize: 19,
     fontWeight: '700',
     fontFamily: 'System',
     letterSpacing: 0,
+  },
+  hoverLift: {
+    transform: [{ translateY: -2 }, { scale: 1.015 }],
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  hoverPressed: {
+    transform: [{ translateY: 1 }, { scale: 0.985 }],
+    opacity: 0.92,
   },
 
   // Header
@@ -650,7 +773,7 @@ const s = StyleSheet.create({
   activeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: L.red },
   timerText: { fontSize: 17, fontWeight: '700', color: L.textPrimary, fontVariant: ['tabular-nums'], fontFamily: 'System' },
   sessionCode: {
-    fontSize: 12, fontWeight: '600', color: L.textMuted, letterSpacing: 1.5,
+    fontSize: 12, fontWeight: '600', color: L.red, letterSpacing: 1.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 
@@ -670,7 +793,7 @@ const s = StyleSheet.create({
   familyChipText: { fontSize: 11, fontWeight: '600', color: L.green },
 
   // Step area
-  stepArea: { flex: 1, paddingHorizontal: 32, paddingTop: 116, paddingBottom: 112 },
+  stepArea: { flex: 1, paddingHorizontal: 32, paddingTop: 78, paddingBottom: 112 },
   exitBackButton: {
     position: 'absolute',
     top: 50,
@@ -708,29 +831,27 @@ const s = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  stepBackPlaceholder: {
-    width: 58,
-    height: 58,
+    justifyContent: 'center',
   },
   stepBackCircle: {
+    position: 'absolute',
+    left: 0,
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: L.red,
     borderWidth: 1,
-    borderColor: 'rgba(204,34,34,0.18)',
+    borderColor: L.red,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: 'rgba(204,34,34,0.16)',
+    shadowColor: 'rgba(204,34,34,0.28)',
     shadowOpacity: 1,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
   stepBackChevron: {
-    color: L.red,
+    color: '#FFFFFF',
     fontSize: 42,
     lineHeight: 42,
     fontWeight: '300',
@@ -747,27 +868,6 @@ const s = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
-  },
-  nextCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: '#F8C9CD',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: 'rgba(204,34,34,0.18)',
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  nextChevron: {
-    color: '#FFFFFF',
-    fontSize: 42,
-    lineHeight: 42,
-    fontWeight: '300',
-    fontFamily: 'System',
-    marginTop: -3,
   },
   pillRow: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
   pillItem: { alignItems: 'center', justifyContent: 'center' },
@@ -787,12 +887,12 @@ const s = StyleSheet.create({
     backgroundColor: L.bg,
   },
   stepTitle: {
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 31,
+    lineHeight: 37,
     fontWeight: '800',
     color: L.textPrimary,
     fontFamily: 'System',
-    marginBottom: 22,
+    marginBottom: 18,
   },
   card: {
     backgroundColor: L.surface,
@@ -839,38 +939,121 @@ const s = StyleSheet.create({
     paddingHorizontal: 18,
     justifyContent: 'center',
   },
-  responseChoiceUrgent: {
-    borderColor: 'rgba(204,34,34,0.28)',
-    backgroundColor: L.redSoft,
-  },
   responseChoiceText: {
     fontSize: 18,
     fontWeight: '600',
     color: L.textPrimary,
     fontFamily: 'System',
   },
-  responseChoiceUrgentText: {
-    color: L.red,
+  narcanChecklist: {
+    gap: 4,
+    paddingVertical: 6,
   },
-  actionChecklist: {
-    gap: 8,
-    padding: 12,
-    backgroundColor: '#fff',
+  narcanRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  narcanDot: {
+    width: 24,
+    height: 24,
     borderRadius: 12,
+    borderWidth: 2,
+    borderColor: L.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  narcanDotDone: {
+    backgroundColor: L.red,
+  },
+  narcanCheck: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  narcanSubtitle: {
+    fontSize: 15,
+    color: L.textSecondary,
+    fontFamily: 'System',
+    marginBottom: 8,
+  },
+  narcanText: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '600',
+    color: L.textPrimary,
+    fontFamily: 'System',
+  },
+  narcanTextDone: {
+    color: L.textMuted,
+  },
+  cardActions: { gap: 10, marginTop: 8 },
+  completeBtn: {
+    height: 58,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: L.surfaceAlt,
     borderWidth: 1,
     borderColor: L.border,
+    marginTop: 12,
   },
-  checkItem: { fontSize: 14, color: L.textPrimary, lineHeight: 20, fontWeight: '500' },
-  cardActions: { gap: 10, marginTop: 8 },
-
-  btn: { paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
-  btnEmergency: { backgroundColor: '#111111' },
-  btnPrimary: { backgroundColor: L.red },
-  btnPrimaryText: { fontSize: 16, fontWeight: '700', color: '#fff', letterSpacing: 0.2 },
-  btnSecondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: L.border },
-  btnSecondaryText: { fontSize: 15, fontWeight: '600', color: L.textSecondary },
+  completeBtnReady: {
+    backgroundColor: L.red,
+    borderColor: L.red,
+    shadowColor: 'rgba(204,34,34,0.22)',
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  completeBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: L.textMuted,
+    fontFamily: 'System',
+  },
+  completeBtnTextReady: {
+    color: '#FFFFFF',
+  },
 
   // Guidance
+  guidanceScreen: {
+    flex: 1,
+    paddingTop: 12,
+  },
+  guidanceExitRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    alignItems: 'flex-start',
+  },
+  guidanceExitButton: {
+    height: 38,
+    paddingHorizontal: 18,
+    borderRadius: 19,
+    backgroundColor: L.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: 'rgba(204,34,34,0.22)',
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  guidanceExitText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: 'System',
+  },
+  guidanceTop: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
   guidanceHeading: { fontSize: 20, fontWeight: '700', color: L.textPrimary, fontFamily: 'System' },
   guidanceSub: { fontSize: 14, color: L.textSecondary, fontFamily: 'System', lineHeight: 20 },
   priorityCard: {
@@ -922,10 +1105,15 @@ const s = StyleSheet.create({
   linkRowArrow: { fontSize: 18, color: L.textMuted },
 
   chatWrap: {
-    height: 420,
+    flex: 1,
+    marginHorizontal: 16,
+    marginTop: 14,
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: 1, borderColor: L.border,
+  },
+  chatWrapExpanded: {
+    marginTop: 0,
   },
 
   visionCard: {

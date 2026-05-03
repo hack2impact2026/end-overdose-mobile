@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Easing,
+  View, Text, Pressable, StyleSheet, Animated, Easing,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -18,67 +19,71 @@ export default function EmergencyTab() {
   const ringOuterPulse = useRef(new Animated.Value(0)).current
   const ringInnerPulse = useRef(new Animated.Value(0)).current
   const sosPulse = useRef(new Animated.Value(0)).current
+  const sosPressScale = useRef(new Animated.Value(1)).current
   const [sosArmed, setSosArmed] = useState(false)
+  const [sosHovered, setSosHovered] = useState(false)
   const lastTapAt = useRef(0)
   const armTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    function ripple(val: Animated.Value, delay: number, duration: number) {
-      const animation = Animated.loop(
+  useFocusEffect(
+    useCallback(() => {
+      function ripple(val: Animated.Value, delay: number, duration: number) {
+        const animation = Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(val, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.ease),
+            }),
+            Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+          ])
+        )
+        animation.start()
+        return animation
+      }
+
+      const outerRipple = ripple(ringOuterPulse, 0, 2200)
+      const innerRipple = ripple(ringInnerPulse, 520, 1850)
+      const buttonPulse = Animated.loop(
         Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(val, {
+          Animated.timing(sosPulse, {
             toValue: 1,
-            duration,
+            duration: 280,
             useNativeDriver: true,
             easing: Easing.out(Easing.ease),
           }),
-          Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(sosPulse, {
+            toValue: 0.28,
+            duration: 260,
+            useNativeDriver: true,
+            easing: Easing.in(Easing.ease),
+          }),
+          Animated.timing(sosPulse, {
+            toValue: 0.62,
+            duration: 220,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(sosPulse, {
+            toValue: 0,
+            duration: 820,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
         ])
       )
-      animation.start()
-      return animation
-    }
+      buttonPulse.start()
 
-    const outerRipple = ripple(ringOuterPulse, 0, 2200)
-    const innerRipple = ripple(ringInnerPulse, 520, 1850)
-    const buttonPulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(sosPulse, {
-          toValue: 1,
-          duration: 280,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        Animated.timing(sosPulse, {
-          toValue: 0.28,
-          duration: 260,
-          useNativeDriver: true,
-          easing: Easing.in(Easing.ease),
-        }),
-        Animated.timing(sosPulse, {
-          toValue: 0.62,
-          duration: 220,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        Animated.timing(sosPulse, {
-          toValue: 0,
-          duration: 820,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-      ])
-    )
-    buttonPulse.start()
-
-    return () => {
-      outerRipple.stop()
-      innerRipple.stop()
-      buttonPulse.stop()
-      if (armTimeout.current) clearTimeout(armTimeout.current)
-    }
-  }, [ringOuterPulse, ringInnerPulse, sosPulse])
+      return () => {
+        outerRipple.stop()
+        innerRipple.stop()
+        buttonPulse.stop()
+        if (armTimeout.current) clearTimeout(armTimeout.current)
+      }
+    }, [ringOuterPulse, ringInnerPulse, sosPulse])
+  )
 
   function handleSOS() {
     const now = Date.now()
@@ -140,6 +145,19 @@ export default function EmergencyTab() {
     }],
   }
 
+  const sosPressStyle = {
+    transform: [{ scale: sosPressScale }],
+  }
+
+  function animateSosPress(toValue: number) {
+    Animated.spring(sosPressScale, {
+      toValue,
+      useNativeDriver: true,
+      speed: 26,
+      bounciness: 7,
+    }).start()
+  }
+
   return (
     <View style={[s.screen, { paddingTop: insets.top }]}>
       <View style={s.header}>
@@ -156,13 +174,25 @@ export default function EmergencyTab() {
             style={[s.ringInner, innerRingStyle]}
           />
           <Animated.View style={sosPulseStyle}>
-            <TouchableOpacity
-              style={[s.sosBtn, sosArmed && s.sosBtnArmed]}
-              onPress={handleSOS}
-              activeOpacity={0.82}
-            >
-              <Text style={s.sosText}>SOS</Text>
-            </TouchableOpacity>
+            <Animated.View style={sosPressStyle}>
+              <Pressable
+                style={({ pressed }) => [
+                  s.sosBtn,
+                  sosHovered && s.sosBtnHover,
+                  sosArmed && s.sosBtnArmed,
+                  pressed && s.sosBtnPressed,
+                ]}
+                onPress={handleSOS}
+                onHoverIn={() => setSosHovered(true)}
+                onHoverOut={() => setSosHovered(false)}
+                onPressIn={() => animateSosPress(0.96)}
+                onPressOut={() => animateSosPress(sosHovered ? 1.035 : 1)}
+                accessibilityRole="button"
+                accessibilityLabel="Start emergency"
+              >
+                <Text style={s.sosText}>SOS</Text>
+              </Pressable>
+            </Animated.View>
           </Animated.View>
         </View>
         <Text style={[s.hint, sosArmed && s.hintArmed]}>
@@ -246,9 +276,19 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
   },
+  sosBtnHover: {
+    backgroundColor: '#D92D2D',
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
+    elevation: 7,
+  },
+  sosBtnPressed: {
+    backgroundColor: '#B91C1C',
+  },
   sosBtnArmed: {
     backgroundColor: '#B91C1C',
-    transform: [{ scale: 1.04 }],
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
   },
   sosText: {
     fontSize: 42,
