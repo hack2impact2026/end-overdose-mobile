@@ -6,15 +6,25 @@ export const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 export const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_CLAUDE_API_KEY || ''
 
 export const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+export const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY || ''
 
 export interface ReachContext {
   naloxoneGiven?: boolean
   visionResult?: string | null
   userName?: string
+  guidanceMode?: 'awake' | 'emergency'
 }
 
-export function buildSystemPrompt({ naloxoneGiven = false, visionResult = null, userName = '' }: ReachContext = {}) {
+export function buildSystemPrompt({
+  naloxoneGiven = false,
+  visionResult = null,
+  userName = '',
+  guidanceMode = 'emergency',
+}: ReachContext = {}) {
   const name = userName ? `The person's name is ${userName}.` : ''
+  const situation = guidanceMode === 'awake'
+    ? 'Current path: the person is awake or responsive. Focus on monitoring, keeping them awake, watching breathing, and escalating to 911 if they get worse.'
+    : 'Current path: possible overdose or unresponsiveness. Focus on 911, naloxone, breathing, recovery position, and staying with them.'
   const nalox = naloxoneGiven
     ? 'Naloxone HAS been administered. Monitor breathing for 2-3 minutes. If no improvement, a second dose may be needed.'
     : 'Naloxone has NOT been given yet. If available, gently ask if they have Narcan/naloxone nearby.'
@@ -25,6 +35,7 @@ export function buildSystemPrompt({ naloxoneGiven = false, visionResult = null, 
   return `You are Reach, a calm and warm emergency AI companion built into SafeReach, a first-response app for overdose and medical emergencies.
 
 ${name}
+${situation}
 Current situation: ${nalox}
 ${vision}
 
