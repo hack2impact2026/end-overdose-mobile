@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useFocusEffect } from '@react-navigation/native'
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   TextInput, Modal, Pressable, ActivityIndicator, Linking,
@@ -11,6 +12,7 @@ import { lightColors as L } from '../../src/theme'
 import Svg, { Path, Circle } from 'react-native-svg'
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import Feather from '@expo/vector-icons/Feather';
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -41,14 +43,15 @@ interface SOSPerson {
 const NARCAN_PURPLE = '#8B5CF6'
 const NARCAN_ICON = '💊'
 const UCLA_CENTER = { lat: 34.0709, lng: -118.444 }
-const VOLUNTEER_DEFAULT_LOCATION = { lat: 34.0705555556, lng: -118.4502777778, label: '34°4\'14"N 118°27\'1"W' }
+const VOLUNTEER_DEFAULT_LOCATION = { lat: 34.0744166667, lng: -118.4391666667, label: '34° 04′ 27.9″ N, 118° 26′ 21.0″ W' }
+const USER_DEFAULT_LOCATION = { lat: 34.069629, lng: -118.449129 }
 
 const PLACE_TYPES = [
-  { id: 'hospital',  name: 'Hospital',     icon: '🏥', markerColor: '#CC2222', query: 'hospital' },
-  { id: 'naloxone',  name: 'Naloxone',     icon: NARCAN_ICON, markerColor: NARCAN_PURPLE, query: 'pharmacy' },
-  { id: 'pharmacy',  name: 'Pharmacy',     icon: '🏪', markerColor: '#D97706', query: 'pharmacy' },
-  { id: 'urgent',    name: 'Urgent Care',  icon: '🩺', markerColor: '#2563EB', query: 'urgent care' },
   { id: 'ucla_narcan', name: 'UCLA Narcan', icon: NARCAN_ICON, markerColor: NARCAN_PURPLE, query: null },
+  { id: 'naloxone',  name: 'Naloxone',     icon: '💉', markerColor: NARCAN_PURPLE, query: 'pharmacy' },
+  { id: 'urgent',    name: 'Urgent Care',  icon: '🩺', markerColor: '#2563EB', query: 'urgent care' },
+  { id: 'hospital',  name: 'Hospital',     icon: '🏥', markerColor: '#CC2222', query: 'hospital' },
+  { id: 'pharmacy',  name: 'Pharmacy',     icon: '🏪', markerColor: '#D97706', query: 'pharmacy' }
 ]
 
 const UCLA_NARCAN_SITES: Omit<Place, 'dist'>[] = [
@@ -85,7 +88,7 @@ const INFO_ROWS = [
   ['Session storage', 'Device only'],
   ['Location access', 'On demand only'],
 ]
-
+ 
 // Mock SOS queue data
 const MOCK_SOS_QUEUE: Omit<SOSPerson, 'dist'>[] = [
   { id: 'sos_1', firstName: 'Alex', lat: 34.0745, lng: -118.4428, resourceNeeded: 'naloxone', volunteersYes: 2 },
@@ -117,13 +120,17 @@ async function fetchNearby(lat: number, lng: number, type: typeof PLACE_TYPES[0]
       return {
         id: `${type.id}_${i}`,
         name: el.tags?.name || type.name,
-        lat: elat, lng: elng,
-        type: type.id, icon: type.icon,
+        lat: elat,
+        lng: elng,
+        type: type.id,
+        icon: type.icon,
         markerColor: type.markerColor,
         dist: haversine({ lat, lng }, { lat: elat, lng: elng }).toFixed(1),
       }
     })
-  } catch { return [] }
+  } catch {
+    return []
+  }
 }
 
 function withDistances(sites: Omit<Place, 'dist'>[], origin?: { lat: number; lng: number }): Place[] {
@@ -170,12 +177,52 @@ export default function ProfileScreen() {
   })
   const [selectedSOSPerson, setSelectedSOSPerson] = useState<SOSPerson | null>(null)
   const [volunteersHelpingState, setVolunteersHelpingState] = useState<Record<string, boolean>>({})
+  const [volunteerMarkerCoord, setVolunteerMarkerCoord] = useState({
+    latitude: VOLUNTEER_DEFAULT_LOCATION.lat,
+    longitude: VOLUNTEER_DEFAULT_LOCATION.lng,
+  })
 
   const mapRef = useRef<MapView>(null)
 
   useEffect(() => { 
     loadLocationAndPlaces()
   }, [])
+
+  // On every map focus, reset the volunteer marker and replay the motion to the user location.
+  useFocusEffect(
+    useCallback(() => {
+      const durationMs = 7000
+      const fromLat = VOLUNTEER_DEFAULT_LOCATION.lat
+      const fromLng = VOLUNTEER_DEFAULT_LOCATION.lng
+      const toLat = USER_DEFAULT_LOCATION.lat
+      const toLng = USER_DEFAULT_LOCATION.lng
+      const startAt = Date.now()
+      let frameId = 0
+
+      setVolunteerMarkerCoord({
+        latitude: fromLat,
+        longitude: fromLng,
+      })
+
+      const animate = () => {
+        const elapsed = Date.now() - startAt
+        const t = Math.min(elapsed / durationMs, 1)
+        const eased = t * t * (3 - 2 * t)
+
+        setVolunteerMarkerCoord({
+          latitude: fromLat + (toLat - fromLat) * eased,
+          longitude: fromLng + (toLng - fromLng) * eased,
+        })
+
+        if (t < 1) {
+          frameId = requestAnimationFrame(animate)
+        }
+      }
+
+      frameId = requestAnimationFrame(animate)
+      return () => cancelAnimationFrame(frameId)
+    }, [])
+  )
 
   // When an emergency is started in the app, add the current user to the SOS queue.
   // Do not add duplicates (based on a stable id or firstName).
@@ -292,18 +339,18 @@ export default function ProfileScreen() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.fullChips}>
           <TouchableOpacity
-            style={[s.chip, !activeFilter && s.chipActive]}
+            style={[s.fullChip, !activeFilter && s.chipActive]}
             onPress={() => setActiveFilter(null)}
           >
-            <Text style={[s.chipText, !activeFilter && s.chipTextActive]}>All</Text>
+            <Text numberOfLines={1} style={[s.fullChipText, !activeFilter && s.chipTextActive]}>All</Text>
           </TouchableOpacity>
           {PLACE_TYPES.map(t => (
             <TouchableOpacity
               key={t.id}
-              style={[s.chip, activeFilter === t.id && s.chipActive]}
+              style={[s.fullChip, activeFilter === t.id && s.chipActive]}
               onPress={() => setActiveFilter(activeFilter === t.id ? null : t.id)}
             >
-              <Text style={[s.chipText, activeFilter === t.id && s.chipTextActive]}>
+              <Text numberOfLines={1} style={[s.fullChipText, activeFilter === t.id && s.chipTextActive]}>
                 {t.icon} {t.name}
               </Text>
             </TouchableOpacity>
@@ -331,10 +378,22 @@ export default function ProfileScreen() {
                 </View>
               </Marker>
             ))}
+            <Marker
+              key="user-default-location-full"
+              coordinate={{ latitude: USER_DEFAULT_LOCATION.lat, longitude: USER_DEFAULT_LOCATION.lng }}
+              title="Your default location"
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={998}
+              tracksViewChanges
+            >
+              <View style={s.userDefaultMarkerBubble}>
+                <Feather name="map-pin" size={24} color="white" />
+              </View>
+            </Marker>
             {shouldShowVolunteerLocation ? (
               <Marker
                 key="volunteer-location-full"
-                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
+                coordinate={volunteerMarkerCoord}
                 title="Volunteer location"
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={999}
@@ -430,11 +489,23 @@ export default function ProfileScreen() {
                 </View>
               </Marker>
             ))}
+            <Marker
+              key="user-default-location-card"
+              coordinate={{ latitude: USER_DEFAULT_LOCATION.lat, longitude: USER_DEFAULT_LOCATION.lng }}
+              title="Your location"
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={998}
+              tracksViewChanges
+            >
+              <View style={s.userDefaultMarkerBubble}>
+                <Feather name="map-pin" size={24} color="white" />
+              </View>
+            </Marker>
             {shouldShowVolunteerLocation ? (
               <Marker
                 key="volunteer-location-card"
-                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
-                title="Volunteer location"
+                coordinate={volunteerMarkerCoord}
+                title="Volunteer"
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={999}
                 tracksViewChanges
@@ -445,7 +516,7 @@ export default function ProfileScreen() {
               </Marker>
             ) : null}
           </MapView>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={s.mapTapOverlay}
             activeOpacity={0.85}
             onPress={() => setFullMapOpen(true)}
@@ -453,7 +524,7 @@ export default function ProfileScreen() {
             <View style={s.mapOpenPill}>
               <Text style={s.mapOpenText}>Expand map</Text>
             </View>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           {loading && (
             <View style={s.mapLoadingOverlay}>
               <ActivityIndicator size="small" color={L.red} />
@@ -546,9 +617,6 @@ export default function ProfileScreen() {
                         <View style={s.queueLeft}>
                           <Text style={s.queueName}>{person.firstName}</Text>
                           <Text style={s.queueDist}>{person.dist} mi away</Text>
-                          {person.volunteerLocation ? (
-                            <Text style={s.queueLocation}>Volunteer location: {person.volunteerLocation}</Text>
-                          ) : null}
                         </View>
                         <Text style={s.queueVolunteers}><Ionicons name="people-outline" size={24} color="red" /> {person.volunteersYes}</Text>
                       </TouchableOpacity>
@@ -593,12 +661,6 @@ export default function ProfileScreen() {
                       {selectedSOSPerson.resourceNeeded === 'counseling' && '🎧 Counseling'}
                     </Text>
                   </View>
-                  {selectedSOSPerson.volunteerLocation ? (
-                    <View style={[s.detailRow, s.detailRowBorder]}>
-                      <Text style={s.detailLabel}>Volunteer Location</Text>
-                      <Text style={s.detailValue}>{selectedSOSPerson.volunteerLocation}</Text>
-                    </View>
-                  ) : null}
                 </View>
               </ScrollView>
             </>
@@ -713,13 +775,30 @@ const s = StyleSheet.create({
   },
   fullChips: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     gap: 8,
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fullChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.border,
+    alignSelf: 'flex-start',
+  },
+  fullChipText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: L.textSecondary,
   },
   fullMapWrap: {
     height: 390,
     marginHorizontal: 16,
+    marginTop: -300,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
@@ -772,6 +851,21 @@ const s = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#FDBA74',
     shadowColor: '#F97316',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  userDefaultMarkerBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4169E1',
+    borderWidth: 3,
+    borderColor: '#93C5FD',
+    shadowColor: '#4169E1',
     shadowOpacity: 0.35,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
