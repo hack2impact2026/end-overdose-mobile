@@ -32,6 +32,7 @@ interface SOSPerson {
   lng: number
   resourceNeeded: 'naloxone' | 'hospital' | 'counseling'
   volunteersYes: number
+  volunteerLocation?: string
   dist?: string
 }
 
@@ -40,6 +41,7 @@ interface SOSPerson {
 const NARCAN_PURPLE = '#8B5CF6'
 const NARCAN_ICON = '💊'
 const UCLA_CENTER = { lat: 34.0709, lng: -118.444 }
+const VOLUNTEER_DEFAULT_LOCATION = { lat: 34.0705555556, lng: -118.4502777778, label: '34°4\'14"N 118°27\'1"W' }
 
 const PLACE_TYPES = [
   { id: 'hospital',  name: 'Hospital',     icon: '🏥', markerColor: '#CC2222', query: 'hospital' },
@@ -146,7 +148,7 @@ function PersonIcon() {
 // ── main screen ────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
-  const { userName, saveUserName } = useApp()
+  const { userName, saveUserName, emergencyActive, alertSettings } = useApp()
   const insets = useSafeAreaInsets()
 
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null)
@@ -174,6 +176,33 @@ export default function ProfileScreen() {
   useEffect(() => { 
     loadLocationAndPlaces()
   }, [])
+
+  // When an emergency is started in the app, add the current user to the SOS queue.
+  // Do not add duplicates (based on a stable id or firstName).
+  useEffect(() => {
+    if (!emergencyActive) return
+
+    setSOSQueue(prev => {
+      const first = userName ? userName.trim().split(' ')[0] : 'You'
+      // Prevent duplicates by id or name
+      if (prev.some(p => p.id === 'me_sos' || p.firstName === first)) return prev
+
+      const lat = userLoc?.lat ?? UCLA_CENTER.lat
+      const lng = userLoc?.lng ?? UCLA_CENTER.lng
+      const dist = userLoc ? haversine(userLoc, { lat, lng }).toFixed(1) : undefined
+
+      const me: SOSPerson = {
+        id: 'me_sos',
+        firstName: first,
+        lat, lng,
+        resourceNeeded: 'naloxone',
+        volunteersYes: 0,
+        dist,
+      }
+
+      return [...prev, me].sort((a, b) => parseFloat(a.dist || '0') - parseFloat(b.dist || '0'))
+    })
+  }, [emergencyActive, userName, userLoc])
 
   async function loadLocationAndPlaces() {
     setLoading(true)
@@ -209,14 +238,25 @@ export default function ProfileScreen() {
   function handleVolunteerResponse(person: SOSPerson) {
     const isCurrentlyHelping = volunteersHelpingState[person.id] === true
     const newHelpingState = !isCurrentlyHelping
+    const sharedVolunteerLocation = newHelpingState && alertSettings.shareVolunteerLocation
+      ? VOLUNTEER_DEFAULT_LOCATION.label
+      : undefined
     
     // Update volunteer count based on new state
     const delta = newHelpingState ? 1 : -1
     setSOSQueue(prev => prev.map(p => 
-      p.id === person.id ? { ...p, volunteersYes: Math.max(0, p.volunteersYes + delta) } : p
+      p.id === person.id ? {
+        ...p,
+        volunteersYes: Math.max(0, p.volunteersYes + delta),
+        volunteerLocation: sharedVolunteerLocation,
+      } : p
     ))
     setSelectedSOSPerson(prev => 
-      prev && prev.id === person.id ? { ...prev, volunteersYes: Math.max(0, prev.volunteersYes + delta) } : prev
+      prev && prev.id === person.id ? {
+        ...prev,
+        volunteersYes: Math.max(0, prev.volunteersYes + delta),
+        volunteerLocation: sharedVolunteerLocation,
+      } : prev
     )
     
     setVolunteersHelpingState(prev => ({ ...prev, [person.id]: newHelpingState }))
@@ -232,6 +272,7 @@ export default function ProfileScreen() {
 
   const filteredPlaces = activeFilter ? places.filter(p => p.type === activeFilter) : places
   const visiblePlaces = filteredPlaces.slice(0, 6)
+  const shouldShowVolunteerLocation = isVolunteer && alertSettings.shareVolunteerLocation
 
   if (fullMapOpen) {
     return (
@@ -290,6 +331,20 @@ export default function ProfileScreen() {
                 </View>
               </Marker>
             ))}
+            {shouldShowVolunteerLocation ? (
+              <Marker
+                key="volunteer-location-full"
+                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
+                title="Volunteer location"
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={999}
+                tracksViewChanges
+              >
+                <View style={s.volunteerMarkerBubble}>
+                  <MaterialCommunityIcons name="hand-heart-outline" size={24} color="#fff" />
+                </View>
+              </Marker>
+            ) : null}
           </MapView>
           {loading && (
             <View style={s.mapLoadingOverlay}>
@@ -375,6 +430,20 @@ export default function ProfileScreen() {
                 </View>
               </Marker>
             ))}
+            {shouldShowVolunteerLocation ? (
+              <Marker
+                key="volunteer-location-card"
+                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
+                title="Volunteer location"
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={999}
+                tracksViewChanges
+              >
+                <View style={s.volunteerMarkerBubble}>
+                  <MaterialCommunityIcons name="hand-heart-outline" size={24} color="#fff" />
+                </View>
+              </Marker>
+            ) : null}
           </MapView>
           <TouchableOpacity
             style={s.mapTapOverlay}
@@ -477,6 +546,9 @@ export default function ProfileScreen() {
                         <View style={s.queueLeft}>
                           <Text style={s.queueName}>{person.firstName}</Text>
                           <Text style={s.queueDist}>{person.dist} mi away</Text>
+                          {person.volunteerLocation ? (
+                            <Text style={s.queueLocation}>Volunteer location: {person.volunteerLocation}</Text>
+                          ) : null}
                         </View>
                         <Text style={s.queueVolunteers}><Ionicons name="people-outline" size={24} color="red" /> {person.volunteersYes}</Text>
                       </TouchableOpacity>
@@ -521,6 +593,12 @@ export default function ProfileScreen() {
                       {selectedSOSPerson.resourceNeeded === 'counseling' && '🎧 Counseling'}
                     </Text>
                   </View>
+                  {selectedSOSPerson.volunteerLocation ? (
+                    <View style={[s.detailRow, s.detailRowBorder]}>
+                      <Text style={s.detailLabel}>Volunteer Location</Text>
+                      <Text style={s.detailValue}>{selectedSOSPerson.volunteerLocation}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </ScrollView>
             </>
@@ -684,6 +762,21 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   markerIcon: { fontSize: 14 },
+  volunteerMarkerBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F97316',
+    borderWidth: 3,
+    borderColor: '#FDBA74',
+    shadowColor: '#F97316',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
 
   // Chips
   chips: { paddingHorizontal: 0, gap: 8, flexDirection: 'row' },
@@ -869,6 +962,7 @@ const s = StyleSheet.create({
   queueLeft: { flex: 1 },
   queueName: { fontSize: 15, fontWeight: '600', color: '#0A0A0A', marginBottom: 4 },
   queueDist: { fontSize: 12, color: L.textSecondary },
+  queueLocation: { fontSize: 11, color: L.red, fontWeight: '600', marginTop: 4, lineHeight: 15 },
   queueVolunteers: { fontSize: 12, fontWeight: '600', color: L.red },
   
   queueHelpBtn: {

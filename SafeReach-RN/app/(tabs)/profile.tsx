@@ -7,14 +7,19 @@ import {
 	Pressable,
 	Modal,
 	TouchableOpacity,
+	Linking,
 } from 'react-native'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Switch } from 'react-native'
 import { lightColors, font, radius } from '../../src/theme'
 import { useApp } from '../../src/AppContext'
 
+const VOLUNTEER_DEFAULT_LOCATION = { label: '34°4\'14"N 118°27\'1"W' }
+
 export default function ProfileScreen() {
 	const insets = useSafeAreaInsets()
-	const { userName } = useApp()
+	const { userName, alertSettings, setAlertSettings } = useApp()
 	const firstName = useMemo(() => (userName || 'Samantha').split(' ')[0], [userName])
   const lastName = useMemo(() => (userName || 'Schnitzel').split(' ')[0], [userName])
 
@@ -34,8 +39,24 @@ export default function ProfileScreen() {
 		insurance: 'Medicare',
 	})
 
+	const contacts = [
+		{ id: 'mom', name: 'Mom', phone: '(555) 111-0101' },
+		{ id: 'dad', name: 'Dad', phone: '(555) 222-0202' },
+		{ id: 'sister', name: 'Sister', phone: '(555) 333-0303' },
+		{ id: 'brother', name: 'Brother', phone: '(555) 444-0404' },
+	]
+
 	const [showContactsModal, setShowContactsModal] = useState(false)
 	const [showAlertsModal, setShowAlertsModal] = useState(false)
+
+	// Local copies to immediately reflect UI while persisting through context
+	const [localAlerts, setLocalAlerts] = useState(() => ({
+		alertEMS: alertSettings?.alertEMS ?? true,
+		alertContacts: alertSettings?.alertContacts ?? true,
+		alertVolunteers: alertSettings?.alertVolunteers ?? true,
+		shareVolunteerLocation: alertSettings?.shareVolunteerLocation ?? false,
+	}))
+	const [locationDropdownOpen, setLocationDropdownOpen] = useState(false)
 
 	return (
 		<View style={[s.screen, { paddingTop: insets.top }]}>
@@ -95,14 +116,53 @@ export default function ProfileScreen() {
 					<View style={s.row}><Text style={s.label}>Insurance</Text><Text style={s.value}>{profile.insurance}</Text></View>
 				</View>
 
+        				{profile.certifiedVolunteer ? (
+					<View style={s.section}>
+						<Text style={s.sectionTitle}>Volunteer Location</Text>
+						<View style={s.toggleRow}>
+							<View style={s.toggleCopyWrap}>
+								<Text style={s.toggleLabel}>Share location with help requests</Text>
+							</View>
+							<Switch
+								value={localAlerts.shareVolunteerLocation}
+								onValueChange={(v) => {
+									const next = { ...localAlerts, shareVolunteerLocation: v }
+									setLocalAlerts(next)
+									setAlertSettings(next)
+								}}
+								trackColor={{ false: '#d1d1d1', true: RED }}
+								thumbColor={'#fff'}
+							/>
+						</View>
+					</View>
+				) : null}
+
 				<View style={{ height: 40 }} />
 			</ScrollView>
 
 			{/* Contacts modal */}
 			<Modal visible={showContactsModal} animationType="slide" onRequestClose={() => setShowContactsModal(false)}>
-				<View style={s.modalWrap}>
+				<View style={[s.modalWrap, { paddingTop: insets.top + 16 }] }>
 					<Text style={s.modalTitle}>Update Close Contacts</Text>
-					<Text style={s.modalCopy}>This modal would allow editing close friends and family contacts.</Text>
+					<Text style={s.modalCopy}>Tap to call or edit your trusted contacts.</Text>
+
+						<View style={{ marginTop: 8, gap: 10 }}>
+							{contacts.map(c => (
+								<View key={c.id} style={s.contactBlock}>
+									<View style={s.contactTextWrap}>
+										<Text style={s.contactName}>{c.name}</Text>
+										<Text style={s.contactPhone}>{c.phone}</Text>
+									</View>
+									<TouchableOpacity
+										style={s.contactCallBtn}
+										onPress={() => Linking.openURL(`tel:${c.phone.replace(/[^0-9+]/g, '')}`)}
+									>
+										<Ionicons name="call" size={20} color={RED} />
+									</TouchableOpacity>
+								</View>
+							))}
+						</View>
+
 					<TouchableOpacity onPress={() => setShowContactsModal(false)} style={s.modalClose}>
 						<Text style={s.modalCloseText}>Close</Text>
 					</TouchableOpacity>
@@ -111,13 +171,50 @@ export default function ProfileScreen() {
 
 			{/* Alerts modal */}
 			<Modal visible={showAlertsModal} animationType="slide" onRequestClose={() => setShowAlertsModal(false)}>
-				<View style={s.modalWrap}>
-					<Text style={s.modalTitle}>Alert Settings</Text>
-					<Text style={s.modalCopy}>This modal would take the user through alert preferences and flow.</Text>
-					<TouchableOpacity onPress={() => setShowAlertsModal(false)} style={s.modalClose}>
-						<Text style={s.modalCloseText}>Close</Text>
-					</TouchableOpacity>
-				</View>
+					<View style={[s.modalWrap, { paddingTop: insets.top + 16 }] }>
+						<Text style={s.modalTitle}>Alert Settings</Text>
+						<Text style={s.modalCopy}>Select who should be notified when you start an emergency.</Text>
+
+						<View style={s.toggleRow}>
+							<Text style={s.toggleLabel}>Alert EMS</Text>
+							<Switch
+								value={localAlerts.alertEMS}
+								onValueChange={(v) => setLocalAlerts(prev => ({ ...prev, alertEMS: v }))}
+								trackColor={{ false: '#d1d1d1', true: RED }}
+								thumbColor={'#fff'}
+							/>
+						</View>
+
+						<View style={s.toggleRow}>
+							<Text style={s.toggleLabel}>Alert close contacts</Text>
+							<Switch
+								value={localAlerts.alertContacts}
+								onValueChange={(v) => setLocalAlerts(prev => ({ ...prev, alertContacts: v }))}
+								trackColor={{ false: '#d1d1d1', true: RED }}
+								thumbColor={'#fff'}
+							/>
+						</View>
+
+						<View style={s.toggleRow}>
+							<Text style={s.toggleLabel}>Alert volunteers</Text>
+							<Switch
+								value={localAlerts.alertVolunteers}
+								onValueChange={(v) => setLocalAlerts(prev => ({ ...prev, alertVolunteers: v }))}
+								trackColor={{ false: '#d1d1d1', true: RED }}
+								thumbColor={'#fff'}
+							/>
+						</View>
+
+						<TouchableOpacity
+							onPress={() => {
+								setAlertSettings && setAlertSettings(localAlerts)
+								setShowAlertsModal(false)
+							}}
+							style={[s.modalClose, { marginTop: 18 }]}
+						>
+							<Text style={s.modalCloseText}>Save</Text>
+						</TouchableOpacity>
+					</View>
 			</Modal>
 		</View>
 	)
@@ -174,5 +271,23 @@ const s = StyleSheet.create({
 	modalCopy: { color: lightColors.textSecondary, fontSize: font.md, marginBottom: 20 },
 	modalClose: { marginTop: 'auto', backgroundColor: lightColors.surface, padding: 14, borderRadius: radius.md, alignItems: 'center' },
 	modalCloseText: { color: lightColors.textPrimary, fontWeight: '700' },
+	contactRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: lightColors.border ?? '#eee' },
+	contactName: { fontSize: font.md, color: lightColors.textPrimary, fontWeight: '600' },
+	contactPhone: { fontSize: font.md, color: lightColors.textSecondary },
+	contactBlock: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: radius.md, backgroundColor: lightColors.surface, borderWidth: 1, borderColor: lightColors.border ?? '#eee' },
+	contactTextWrap: { flex: 1, paddingRight: 12 },
+	contactCallBtn: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+	toggleCopyWrap: { flex: 1, paddingRight: 12 },
+	toggleSub: { marginTop: 4, fontSize: font.sm, color: lightColors.textSecondary, lineHeight: 18 },
+	dropdownWrap: { marginTop: 10 },
+	dropdownBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: lightColors.surface, borderWidth: 1, borderColor: lightColors.border ?? '#eee' },
+	dropdownTextWrap: { flex: 1, paddingRight: 12 },
+	dropdownValue: { marginTop: 4, fontSize: font.sm, color: lightColors.textSecondary },
+	dropdownChevron: { fontSize: font.lg, color: lightColors.textSecondary },
+	dropdownMenu: { marginTop: 8, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: lightColors.border ?? '#eee', backgroundColor: lightColors.bg },
+	dropdownItem: { paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: lightColors.border ?? '#eee' },
+	dropdownItemText: { fontSize: font.md, color: lightColors.textPrimary },
+		toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: lightColors.border ?? '#eee' },
+		toggleLabel: { fontSize: font.md, color: lightColors.textPrimary, fontWeight: '600' },
 })
 

@@ -18,6 +18,13 @@ interface AppState {
   visionResult: string | null
   familyJoinCode: string
   familyMemberName: string
+  alertSettings: {
+    alertEMS: boolean
+    alertContacts: boolean
+    alertVolunteers: boolean
+    shareVolunteerLocation: boolean
+  }
+  volunteersNotified: boolean
 }
 
 interface AppContextValue extends AppState {
@@ -30,6 +37,8 @@ interface AppContextValue extends AppState {
   setVisionResult: (r: string | null) => void
   setFamilyJoinCode: (code: string) => void
   setFamilyMemberName: (name: string) => void
+  setAlertSettings: (s: { alertEMS: boolean; alertContacts: boolean; alertVolunteers: boolean; shareVolunteerLocation: boolean }) => void
+  setVolunteersNotified: (v: boolean) => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -44,6 +53,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [visionResult, setVisionResult] = useState<string | null>(null)
   const [familyJoinCode, setFamilyJoinCode] = useState('')
   const [familyMemberName, setFamilyMemberName] = useState('')
+  const [alertSettings, setAlertSettings] = useState({ alertEMS: true, alertContacts: true, alertVolunteers: true, shareVolunteerLocation: false })
+  const [volunteersNotified, setVolunteersNotified] = useState(false)
 
   // Load userName on init
   React.useEffect(() => {
@@ -64,6 +75,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChatHistoryState([])
     setNaloxoneGiven(false)
     setVisionResult(null)
+    // If user opted to alert volunteers, mark volunteers as notified (mock)
+    if (alertSettings.alertVolunteers) {
+      setVolunteersNotified(true)
+      // reset the notifier after a short time to allow subsequent notifications
+      setTimeout(() => setVolunteersNotified(false), 5_000)
+    }
   }, [userName])
 
   const endEmergency = useCallback(() => {
@@ -88,6 +105,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setChatHistory, setNaloxoneGiven, saveUserName,
       setLocation, setVisionResult,
       setFamilyJoinCode, setFamilyMemberName,
+      alertSettings, setAlertSettings,
+      volunteersNotified, setVolunteersNotified,
     }}>
       {children}
     </AppContext.Provider>
