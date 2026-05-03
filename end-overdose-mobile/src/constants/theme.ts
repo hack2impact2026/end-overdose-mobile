@@ -1,8 +1,3 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
 import '@/global.css';
 
 import { Platform } from 'react-native';
@@ -28,13 +23,9 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {
@@ -63,3 +54,19 @@ export const Spacing = {
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;
+
+// Design tokens
+export const Emergency = '#E60023';
+export const EmergencyRing1 = 'rgba(230,0,35,0.22)';
+export const EmergencyRing2 = 'rgba(230,0,35,0.10)';
+
+export const TabBar = {
+  background: '#FFFFFF',
+  border: '#E5E5EA',
+  activeIcon: Emergency,
+  activeLabel: Emergency,
+  inactiveIcon: '#8E8E93',
+  inactiveLabel: '#8E8E93',
+  pillBackground: '#F2F2F7',
+  height: 60,
+} as const;

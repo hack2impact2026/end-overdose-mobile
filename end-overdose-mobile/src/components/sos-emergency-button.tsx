@@ -1,255 +1,197 @@
-import { useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import ReanimatedAnimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
-const DOUBLE_TAP_DELAY = 300;
+import { Emergency } from '@/constants/theme';
 
-export function SOSEmergencyButton() {
-  const [isModalVisible, setIsModalVisible] = useState(false);
+const BUTTON_SIZE = 160;
+const RING1_SIZE = 220;
+const RING2_SIZE = 300;
+const DOUBLE_TAP_DELAY = 400;
+
+interface SOSButtonProps {
+  onConfirmed: () => void;
+  onArmedChange?: (armed: boolean) => void;
+}
+
+export function SOSEmergencyButton({ onConfirmed, onArmedChange }: SOSButtonProps) {
+  const [armed, setArmed] = useState(false);
   const lastTapRef = useRef(0);
+  const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function setArmedState(value: boolean) {
+    setArmed(value);
+    onArmedChange?.(value);
+  }
+
+  // Ring animations (react-native Animated — simple and reliable for looping)
+  const ring1Anim = useRef(new Animated.Value(1)).current;
+  const ring2Anim = useRef(new Animated.Value(1)).current;
+
+  // Pressable feedback (Reanimated for spring)
+  const pressScale = useSharedValue(1);
+  const pressOpacity = useSharedValue(1);
+
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+    opacity: pressOpacity.value,
+  }));
+
+  useEffect(() => {
+    const duration = armed ? 700 : 1400;
+
+    const loop1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ring1Anim, {
+          toValue: 1.06,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ring1Anim, {
+          toValue: 1.0,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const loop2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ring2Anim, {
+          toValue: 1.06,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ring2Anim, {
+          toValue: 1.0,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loop1.start();
+    const offset = setTimeout(() => loop2.start(), armed ? 200 : 500);
+
+    return () => {
+      loop1.stop();
+      loop2.stop();
+      clearTimeout(offset);
+    };
+  }, [armed, ring1Anim, ring2Anim]);
 
   function handlePress() {
     const now = Date.now();
-    const isDoubleTap = now - lastTapRef.current < DOUBLE_TAP_DELAY;
+    const timeSinceLast = now - lastTapRef.current;
 
-    if (isDoubleTap) {
-      setIsModalVisible(true);
+    if (armed && timeSinceLast < DOUBLE_TAP_DELAY) {
+      if (disarmTimer.current) clearTimeout(disarmTimer.current);
+      setArmedState(false);
       lastTapRef.current = 0;
+      onConfirmed();
       return;
     }
 
+    setArmedState(true);
     lastTapRef.current = now;
+
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    disarmTimer.current = setTimeout(() => {
+      setArmedState(false);
+      lastTapRef.current = 0;
+    }, 3000);
   }
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Emergency Help</Text>
-        <Text style={styles.subtitle}>Notify your trusted contacts immediately.</Text>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="SOS emergency button"
-          onPress={handlePress}
-          style={({ pressed }) => [styles.buttonHitArea, pressed && styles.pressed]}
-        >
-          <View style={styles.outerRing}>
-            <View style={styles.middleRing}>
-              <View style={styles.innerButton}>
-                <Text style={styles.sosText}>SOS</Text>
-              </View>
-            </View>
-          </View>
-        </Pressable>
-
-        <Text style={styles.instruction}>Double-tap to confirm</Text>
-      </View>
-
-      <Text style={styles.footer}>
-        This app coordinates support. It does not replace emergency services.
-      </Text>
-
-      <Modal
-        animationType="slide"
-        presentationStyle="fullScreen"
-        visible={isModalVisible}
-        onRequestClose={() => setIsModalVisible(false)}
-      >
-        <View style={styles.modalScreen}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close emergency modal"
-            onPress={() => setIsModalVisible(false)}
-            style={styles.backButton}
-          >
-            <Text style={styles.backButtonText}>‹</Text>
-          </Pressable>
-
-          <View style={styles.modalContent}>
-            <Text style={styles.ambulance}>🚑</Text>
-            <Text style={styles.modalTitle}>
-              Take a deep breath{"\n"}
-              EMS is on the way
-            </Text>
-
-            <Pressable style={styles.primaryAction} onPress={() => setIsModalVisible(false)}>
-              <Text style={styles.primaryActionText}>I NEED HELP</Text>
-            </Pressable>
-
-            <Pressable style={styles.secondaryAction} onPress={() => setIsModalVisible(false)}>
-              <Text style={styles.secondaryActionText}>I&apos;M READY TO HELP</Text>
-            </Pressable>
-          </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="SOS emergency button"
+      onPress={handlePress}
+      onPressIn={() => {
+        pressScale.value = withTiming(0.96, { duration: 80 });
+        pressOpacity.value = withTiming(0.85, { duration: 80 });
+      }}
+      onPressOut={() => {
+        pressScale.value = withSpring(1, { damping: 15, stiffness: 200 });
+        pressOpacity.value = withTiming(1, { duration: 150 });
+      }}
+    >
+      <ReanimatedAnimated.View style={[styles.wrapper, pressAnimStyle]}>
+        {/* Ring 2 — outermost */}
+        <Animated.View
+          style={[
+            styles.ring2,
+            { transform: [{ scale: ring2Anim }] },
+          ]}
+        />
+        {/* Ring 1 */}
+        <Animated.View
+          style={[
+            styles.ring1,
+            { transform: [{ scale: ring1Anim }] },
+          ]}
+        />
+        {/* Button — does not animate */}
+        <View style={styles.button}>
+          <Text style={styles.sosText}>SOS</Text>
         </View>
-      </Modal>
-    </View>
+      </ReanimatedAnimated.View>
+    </Pressable>
   );
 }
 
+export default SOSEmergencyButton;
+
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 28,
-  },
-  content: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '700',
-    color: '#111111',
-    textAlign: 'center',
-  },
-  subtitle: {
-    marginTop: 10,
-    fontSize: 17,
-    lineHeight: 22,
-    color: '#777777',
-    textAlign: 'center',
-  },
-  buttonHitArea: {
-    marginTop: 84,
-    marginBottom: 72,
-  },
-  pressed: {
-    opacity: 0.9,
-  },
-  outerRing: {
-    width: 420,
-    height: 420,
-    borderRadius: 210,
-    backgroundColor: '#fde3e5',
+  wrapper: {
+    width: RING2_SIZE,
+    height: RING2_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  middleRing: {
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: '#f8b2b8',
-    alignItems: 'center',
-    justifyContent: 'center',
+  ring2: {
+    position: 'absolute',
+    width: RING2_SIZE,
+    height: RING2_SIZE,
+    borderRadius: RING2_SIZE / 2,
+    backgroundColor: 'rgba(230,0,35,0.10)',
   },
-  innerButton: {
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    backgroundColor: '#e60026',
+  ring1: {
+    position: 'absolute',
+    width: RING1_SIZE,
+    height: RING1_SIZE,
+    borderRadius: RING1_SIZE / 2,
+    backgroundColor: 'rgba(230,0,35,0.22)',
+  },
+  button: {
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    borderRadius: BUTTON_SIZE / 2,
+    backgroundColor: Emergency,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
   },
   sosText: {
-    color: '#ffffff',
-    fontSize: 40,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  instruction: {
-    fontSize: 22,
-    lineHeight: 28,
-    color: '#707070',
-    textAlign: 'center',
-  },
-  footer: {
-    fontSize: 16,
-    lineHeight: 21,
-    color: '#b0b0b0',
-    textAlign: 'center',
-    maxWidth: 320,
-  },
-  modalScreen: {
-    flex: 1,
-    backgroundColor: '#e60026',
-  },
-  backButton: {
-    position: 'absolute',
-    top: 56,
-    left: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  backButtonText: {
-    color: '#ffffff',
-    fontSize: 36,
-    lineHeight: 38,
-    fontWeight: '300',
-    marginTop: -4,
-  },
-  modalContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  ambulance: {
-    fontSize: 92,
-    lineHeight: 92,
-    marginBottom: 48,
-  },
-  modalTitle: {
-    color: '#ffffff',
-    fontSize: 35,
-    lineHeight: 42,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  primaryAction: {
-    marginTop: 52,
-    width: '100%',
-    maxWidth: 360,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  primaryActionText: {
-    color: '#e60026',
-    fontSize: 22,
-    lineHeight: 26,
+    color: '#FFFFFF',
+    fontSize: 28,
     fontWeight: '700',
-  },
-  secondaryAction: {
-    marginTop: 22,
-    width: '100%',
-    maxWidth: 360,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  secondaryActionText: {
-    color: '#e60026',
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: '700',
+    fontFamily: 'System',
+    letterSpacing: 1,
   },
 });
