@@ -9,6 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp } from '../../src/AppContext'
 import { lightColors as L } from '../../src/theme'
 import Svg, { Path, Circle } from 'react-native-svg'
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,16 @@ interface Place {
   type: string
   icon: string
   markerColor: string
+  dist?: string
+}
+
+interface SOSPerson {
+  id: string
+  firstName: string
+  lat: number
+  lng: number
+  resourceNeeded: 'naloxone' | 'hospital' | 'counseling'
+  volunteersYes: number
   dist?: string
 }
 
@@ -70,6 +82,14 @@ const INFO_ROWS = [
   ['AI Model', 'claude-haiku-4-5'],
   ['Session storage', 'Device only'],
   ['Location access', 'On demand only'],
+]
+
+// Mock SOS queue data
+const MOCK_SOS_QUEUE: Omit<SOSPerson, 'dist'>[] = [
+  { id: 'sos_1', firstName: 'Alex', lat: 34.0745, lng: -118.4428, resourceNeeded: 'naloxone', volunteersYes: 2 },
+  { id: 'sos_2', firstName: 'Jordan', lat: 34.0699, lng: -118.4460, resourceNeeded: 'hospital', volunteersYes: 1 },
+  { id: 'sos_3', firstName: 'Casey', lat: 34.0710, lng: -118.4475, resourceNeeded: 'counseling', volunteersYes: 0 },
+  { id: 'sos_4', firstName: 'Morgan', lat: 34.0680, lng: -118.4400, resourceNeeded: 'naloxone', volunteersYes: 3 },
 ]
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -138,9 +158,22 @@ export default function ProfileScreen() {
   const [nameInput, setNameInput] = useState(userName)
   const [saved, setSaved] = useState(false)
 
+  // Volunteer SOS queue state
+  const [isVolunteer] = useState(true) // Demo: user is certified volunteer
+  const [sosQueue, setSOSQueue] = useState<SOSPerson[]>(() => {
+    return MOCK_SOS_QUEUE.map(p => ({
+      ...p,
+      dist: '0.5', // Will update after location is loaded
+    })).sort((a, b) => parseFloat(a.dist || '0') - parseFloat(b.dist || '0'))
+  })
+  const [selectedSOSPerson, setSelectedSOSPerson] = useState<SOSPerson | null>(null)
+  const [volunteersHelpingState, setVolunteersHelpingState] = useState<Record<string, boolean>>({})
+
   const mapRef = useRef<MapView>(null)
 
-  useEffect(() => { loadLocationAndPlaces() }, [])
+  useEffect(() => { 
+    loadLocationAndPlaces()
+  }, [])
 
   async function loadLocationAndPlaces() {
     setLoading(true)
@@ -152,6 +185,13 @@ export default function ProfileScreen() {
       setUserLoc(loc)
       const results = await Promise.all(PLACE_TYPES.map(t => fetchNearby(loc.lat, loc.lng, t)))
       setPlaces([...results.flat(), ...withDistances(UCLA_NARCAN_SITES, loc)])
+      
+      // Update SOS queue distances
+      const queueWithDist = MOCK_SOS_QUEUE.map(p => ({
+        ...p,
+        dist: haversine(loc, { lat: p.lat, lng: p.lng }).toFixed(1),
+      })).sort((a, b) => parseFloat(a.dist || '0') - parseFloat(b.dist || '0'))
+      setSOSQueue(queueWithDist)
     } catch {}
     setLoading(false)
   }
@@ -164,6 +204,22 @@ export default function ProfileScreen() {
 
   function openDirections(place: Place) {
     Linking.openURL(`https://maps.apple.com/?daddr=${place.lat},${place.lng}&dirflg=d`)
+  }
+
+  function handleVolunteerResponse(person: SOSPerson) {
+    const isCurrentlyHelping = volunteersHelpingState[person.id] === true
+    const newHelpingState = !isCurrentlyHelping
+    
+    // Update volunteer count based on new state
+    const delta = newHelpingState ? 1 : -1
+    setSOSQueue(prev => prev.map(p => 
+      p.id === person.id ? { ...p, volunteersYes: Math.max(0, p.volunteersYes + delta) } : p
+    ))
+    setSelectedSOSPerson(prev => 
+      prev && prev.id === person.id ? { ...prev, volunteersYes: Math.max(0, prev.volunteersYes + delta) } : prev
+    )
+    
+    setVolunteersHelpingState(prev => ({ ...prev, [person.id]: newHelpingState }))
   }
 
   const initials = userName
@@ -269,12 +325,12 @@ export default function ProfileScreen() {
       {/* ── header ── */}
       <View style={s.header}>
         <View style={s.headerCopy}>
-          <Text style={s.title}>Profile</Text>
-          <Text style={s.subtitle}>Account details and nearby support resources.</Text>
+          <Text style={s.title}>Map</Text>
+          <Text style={s.subtitle}>Find nearby support resources.</Text>
         </View>
-        <TouchableOpacity style={s.accountBtn} onPress={() => { setNameInput(userName); setAccountOpen(true) }}>
-          {initials ? (
-            <Text style={s.accountInitials}>{initials}</Text>
+        <TouchableOpacity style={s.accountBtn} onPress={() => { setAccountOpen(true) }}>
+          {isVolunteer ? (
+            <MaterialCommunityIcons name="hand-heart-outline" size={24} color="red" />
           ) : (
             <PersonIcon />
           )}
@@ -388,53 +444,87 @@ export default function ProfileScreen() {
         </Text>
       </ScrollView>
 
-      {/* ── account modal ── */}
-      <Modal visible={accountOpen} transparent animationType="slide">
-        <Pressable style={s.modalBackdrop} onPress={() => setAccountOpen(false)} />
-        <View style={[s.sheet, { paddingBottom: insets.bottom + 16 }]}>
-          <View style={s.sheetHandle} />
-          <Text style={s.sheetTitle}>Your Profile</Text>
-
-          {/* Avatar */}
-          <View style={s.sheetAvatarRow}>
-            <View style={s.sheetAvatar}>
-              <Text style={s.sheetAvatarText}>{initials || '?'}</Text>
-            </View>
-            <View>
-              <Text style={s.sheetName}>{userName || 'Not set'}</Text>
-              <Text style={s.sheetNameSub}>Used in emergency alerts</Text>
-            </View>
-          </View>
-
-          {/* Name input */}
-          <View style={s.nameRow}>
-            <TextInput
-              style={s.nameInput}
-              value={nameInput}
-              onChangeText={setNameInput}
-              onSubmitEditing={saveName}
-              placeholder="Enter your name"
-              placeholderTextColor={L.textMuted}
-              returnKeyType="done"
-            />
-            <TouchableOpacity style={s.saveBtn} onPress={saveName}>
-              <Text style={s.saveBtnText}>{saved ? '✓ Saved' : 'Save'}</Text>
+      {/* ── volunteer SOS queue modal ── */}
+      <Modal visible={accountOpen && isVolunteer} animationType="slide">
+        <View style={[s.fullscreenModal, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          {/* Header with close button */}
+          <View style={s.modalHeader}>
+            <Text style={s.modalHeaderTitle}>Help Queue</Text>
+            <TouchableOpacity onPress={() => { setAccountOpen(false); setSelectedSOSPerson(null) }} style={s.modalCloseBtn}>
+              <Text style={s.modalCloseIcon}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Info rows */}
-          <View style={s.infoCard}>
-            {INFO_ROWS.map(([label, value], i) => (
-              <View key={label} style={[s.infoRow, i < INFO_ROWS.length - 1 && s.infoRowBorder]}>
-                <Text style={s.infoLabel}>{label}</Text>
-                <Text style={s.infoValue}>{value}</Text>
-              </View>
-            ))}
-          </View>
-
-          <Text style={s.sheetDisclaimer}>
-            SafeReach is not a substitute for emergency services. AI guidance does not constitute medical advice.
-          </Text>
+          {!selectedSOSPerson ? (
+            <>
+              <Text style={s.modalSubtitle}>{sosQueue.length} people need help</Text>
+              
+              <ScrollView style={s.fullQueueList} showsVerticalScrollIndicator={false}>
+                {sosQueue.length === 0 ? (
+                  <View style={s.emptyQueueWrap}>
+                    <Text style={s.emptyQueueIcon}>✓</Text>
+                    <Text style={s.emptyQueueTitle}>No active emergencies</Text>
+                    <Text style={s.emptyQueueCopy}>Check back soon</Text>
+                  </View>
+                ) : (
+                  sosQueue.map(person => (
+                    <View key={person.id} style={s.queueItemContainer}>
+                      <TouchableOpacity
+                        style={s.queueItemTap}
+                        onPress={() => setSelectedSOSPerson(person)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={s.queueLeft}>
+                          <Text style={s.queueName}>{person.firstName}</Text>
+                          <Text style={s.queueDist}>{person.dist} mi away</Text>
+                        </View>
+                        <Text style={s.queueVolunteers}><Ionicons name="people-outline" size={24} color="red" /> {person.volunteersYes}</Text>
+                      </TouchableOpacity>
+                      
+                      <View style={s.queueButtonsRow}>
+                        <TouchableOpacity
+                          style={[s.queueHelpBtn, volunteersHelpingState[person.id] && s.queueHelpBtnActive]}
+                          onPress={() => handleVolunteerResponse(person)}
+                        >
+                          <Text style={[s.queueHelpBtnText, volunteersHelpingState[person.id] && { color: '#fff' }]}>
+                            {volunteersHelpingState[person.id] ? 'Cancel' : 'Help?'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity onPress={() => setSelectedSOSPerson(null)} style={s.backRow}>
+                <Text style={s.backText}>‹ Back</Text>
+              </TouchableOpacity>
+              <Text style={s.modalHeaderTitle}>{selectedSOSPerson.firstName}</Text>
+              
+              <ScrollView style={s.fullQueueList} showsVerticalScrollIndicator={false}>
+                <View style={s.detailCard}>
+                  <View style={s.detailRow}>
+                    <Text style={s.detailLabel}>Location</Text>
+                    <Text style={s.detailValue}>{selectedSOSPerson.lat.toFixed(4)}, {selectedSOSPerson.lng.toFixed(4)}</Text>
+                  </View>
+                  <View style={[s.detailRow, s.detailRowBorder]}>
+                    <Text style={s.detailLabel}>Distance</Text>
+                    <Text style={s.detailValue}>{selectedSOSPerson.dist} mi</Text>
+                  </View>
+                  <View style={s.detailRow}>
+                    <Text style={s.detailLabel}>Resource Needed</Text>
+                    <Text style={s.detailValue}>
+                      {selectedSOSPerson.resourceNeeded === 'naloxone' && '💊 Naloxone'}
+                      {selectedSOSPerson.resourceNeeded === 'hospital' && '🏥 Hospital'}
+                      {selectedSOSPerson.resourceNeeded === 'counseling' && '🎧 Counseling'}
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
+            </>
+          )}
         </View>
       </Modal>
     </View>
@@ -469,6 +559,8 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   accountInitials: { fontSize: 13, fontWeight: '700', color: L.textSecondary },
+
+  accountText: { fontSize: 13, fontWeight: '700', color: L.red },
 
   body: { paddingHorizontal: 16, gap: 12 },
   sectionHeader: {
@@ -650,6 +742,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 12, gap: 16,
     borderTopWidth: 1, borderColor: L.border,
   },
+  sheetFlex: {
+    flex: 1,
+    maxHeight: '85%',
+  },
   sheetHandle: {
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: L.border,
@@ -699,4 +795,106 @@ const s = StyleSheet.create({
   sheetDisclaimer: {
     fontSize: 11, color: L.textMuted, lineHeight: 16, textAlign: 'center', paddingBottom: 4,
   },
+
+  // Volunteer Queue
+  sheetSubtitle: { fontSize: 13, color: L.textSecondary, marginBottom: 12 },
+  queueScrollView: {
+    flex: 1,
+    minHeight: 100,
+  },
+  fullscreenModal: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: L.border,
+  },
+  modalHeaderTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0A0A0A',
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: L.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseIcon: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: L.textSecondary,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: L.textSecondary,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  fullQueueList: {
+    flex: 1,
+  },
+  queueItemContainer: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: L.border,
+  },
+  queueItemTap: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  queueButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  emptyQueueWrap: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 48, gap: 12,
+  },
+  emptyQueueIcon: { fontSize: 40 },
+  emptyQueueTitle: { fontSize: 16, fontWeight: '600', color: '#0A0A0A' },
+  emptyQueueCopy: { fontSize: 13, color: L.textSecondary },
+  
+  queueLeft: { flex: 1 },
+  queueName: { fontSize: 15, fontWeight: '600', color: '#0A0A0A', marginBottom: 4 },
+  queueDist: { fontSize: 12, color: L.textSecondary },
+  queueVolunteers: { fontSize: 12, fontWeight: '600', color: L.red },
+  
+  queueHelpBtn: {
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 6, borderWidth: 1, borderColor: L.red,
+    backgroundColor: 'transparent',
+  },
+  queueHelpBtnActive: {
+    backgroundColor: L.red,
+  },
+  queueHelpBtnText: { fontSize: 11, fontWeight: '600', color: L.red },
+  
+  backRow: { paddingVertical: 8, marginBottom: 4 },
+  backText: { fontSize: 15, fontWeight: '600', color: L.red },
+  
+  detailCard: {
+    backgroundColor: L.surface,
+    borderRadius: 12, borderWidth: 1, borderColor: L.border,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  detailRowBorder: { borderBottomWidth: 1, borderBottomColor: L.border },
+  detailLabel: { fontSize: 13, color: L.textSecondary, fontWeight: '500' },
+  detailValue: { fontSize: 14, fontWeight: '600', color: '#0A0A0A', textAlign: 'right', flex: 1, marginLeft: 12 },
 })
