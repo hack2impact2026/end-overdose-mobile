@@ -33,6 +33,7 @@ SafeReach-RN/
 - **Design:** White iOS-like screen with `Resources` title, short subtitle, exactly 3 nearby demo resource cards, one compact `How to use naloxone` guide, and one small `Call 911` fallback action.
 - **Data:** Nearby results are mocked demo data; no GPS permissions, backend, or complex map logic added.
 - **Do not touch for this work:** emergency, triage, profile, tab bar, map implementation, or unrelated flows.
+- **911 urgent-help card:** Must remain visually polished, high-priority, and consistent with the app's soft emergency aesthetic — warm pinkish tint (`#FFF1F2`), refined red border, prominent "Call 911" headline (`font['2xl']`, weight `800`), and a clearly labeled pill button ("Call 911"). Do not let it become visually loud, flashy, or disconnected from the rest of the screen.
 
 ### Emergency screen redesign (branch: edits)
 - **File:** `app/(tabs)/index.tsx`
@@ -60,6 +61,17 @@ SafeReach-RN/
 - **Navigation:** Tapping the map card navigates to `/(tabs)/map` (full map screen remains unchanged)
 - **Data:** Duplicates haversine + Overpass fetch from `map.tsx` — do not consolidate without confirming `map.tsx` is safe to touch
 - **Do not touch:** `app/(tabs)/map.tsx` (working, dark-themed, teammate-adjacent)
+
+## Voice / Mic Transcription (emergency chat)
+
+- **File:** `src/components/ChatInterface.tsx` — `transcribeAudio`, `startVoice`, `stopVoice`
+- **Service:** OpenAI Whisper (`whisper-1`) called directly from the frontend via `EXPO_PUBLIC_OPENAI_API_KEY`
+- **Root cause of Whisper 401:** `EXPO_PUBLIC_OPENAI_API_KEY` env var was unset → empty Bearer token → 401
+- **Fix applied:** `transcribeAudio` now throws `TRANSCRIPTION_UNAVAILABLE` sentinel when key is absent; `stopVoice` catch shows a clean user-facing alert instead of the raw API error string
+- **Demo fallback:** When no key is set, user sees: *"Voice transcription is unavailable. Please type your message instead."*
+- **Security rule:** Never expose OpenAI keys in the app binary. Production path must proxy through a backend endpoint. The `EXPO_PUBLIC_` prefix makes the key visible in the bundle — this is acceptable for demos only.
+- **Never** show raw provider error strings (`Whisper 401`, etc.) to users — log in dev only via `__DEV__ && console.warn`
+- **Env vars:** See `.env.example` for all required keys. Copy to `.env` (gitignored) and restart Expo to activate.
 
 ## Code Architecture Goal
 

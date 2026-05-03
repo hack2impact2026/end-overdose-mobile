@@ -122,7 +122,7 @@ export default function ResourcesScreen() {
               pressed && s.pressed,
             ]}
           >
-            <Text style={s.emergencyButtonText}>Call</Text>
+            <Text style={s.emergencyButtonText}>Call 911</Text>
           </Pressable>
         </View>
 
@@ -255,32 +255,39 @@ const s = StyleSheet.create({
     lineHeight: 21,
   },
   emergencyCard: {
-    backgroundColor: '#FFF5F5',
-    borderColor: 'rgba(220, 38, 38, 0.18)',
-    borderRadius: 24,
-    borderWidth: 1,
+    backgroundColor: '#FFF1F2',
+    borderColor: 'rgba(204, 34, 34, 0.22)',
+    borderRadius: 20,
+    borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 16,
-    padding: 22,
+    paddingVertical: 22,
+    paddingHorizontal: 22,
     marginBottom: 32,
+    shadowColor: '#CC2222',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 2,
   },
   emergencyContent: {
     flex: 1,
   },
   emergencyLabel: {
-    color: 'rgba(185, 28, 28, 0.6)',
-    fontSize: 12,
+    color: 'rgba(185, 28, 28, 0.55)',
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 5,
   },
   emergencyTitle: {
     color: lightColors.red,
-    fontSize: font.lg,
-    fontWeight: '700',
+    fontSize: font['2xl'],
+    fontWeight: '800',
+    letterSpacing: -0.3,
     marginBottom: 6,
   },
   emergencyBody: {
@@ -291,16 +298,17 @@ const s = StyleSheet.create({
   emergencyButton: {
     backgroundColor: lightColors.red,
     borderRadius: 999,
-    minHeight: 48,
-    paddingHorizontal: 24,
+    minHeight: 52,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   emergencyButtonText: {
     color: '#FFFFFF',
-    fontSize: font.md,
+    fontSize: font.sm,
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
   pressed: {
     opacity: 0.7,

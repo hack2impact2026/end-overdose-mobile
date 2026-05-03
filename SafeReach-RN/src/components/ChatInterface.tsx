@@ -68,6 +68,7 @@ function MicIcon() {
 }
 
 async function transcribeAudio(uri: string): Promise<string> {
+  if (!OPENAI_API_KEY) throw new Error('TRANSCRIPTION_UNAVAILABLE')
   const formData = new FormData()
   formData.append('file', { uri, type: 'audio/m4a', name: 'voice.m4a' } as any)
   formData.append('model', 'whisper-1')
@@ -171,8 +172,12 @@ export default function ChatInterface({
         if (text.trim()) setInput(text.trim())
       }
     } catch (err: any) {
-      console.error('Transcription error:', err)
-      Alert.alert('Transcription Error', err.message || 'Could not transcribe audio.')
+      if (__DEV__) console.warn('[Transcription]', err?.message)
+      Alert.alert(
+        'Voice Unavailable',
+        'Voice transcription is unavailable. Please type your message instead.',
+        [{ text: 'OK' }]
+      )
     }
     setTranscribing(false)
   }
