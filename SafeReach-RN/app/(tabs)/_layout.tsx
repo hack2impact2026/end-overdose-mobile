@@ -39,6 +39,17 @@ function ResourcesIcon({ color }: { color: string }) {
   )
 }
 
+function MapIcon({ color }: { color: string }) {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 22 22" fill="none">
+      <Path d="M8 4.5 3 6.5v11l5-2 6 2 5-2v-11l-5 2-6-2Z" stroke={color} strokeWidth={1.7} strokeLinejoin="round" />
+      <Path d="M8 4.5v11M14 6.5v11" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+      <Path d="M11 8.5c1.1 0 2 .9 2 2 0 1.7-2 3.5-2 3.5s-2-1.8-2-3.5c0-1.1.9-2 2-2Z" fill={color} />
+      <Circle cx={11} cy={10.5} r={0.55} fill={TAB_BG} />
+    </Svg>
+  )
+}
+
 function ProfileIcon({ color }: { color: string }) {
   return (
     <Svg width={22} height={22} viewBox="0 0 22 22" fill="none">
@@ -192,7 +203,10 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="map"
-        options={{ href: null }}
+        options={{
+          title: 'Map',
+          tabBarIcon: ({ color }) => <MapIcon color={color} />,
+        }}
       />
       <Tabs.Screen
         name="profile"
