@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useFocusEffect } from '@react-navigation/native'
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   TextInput, Modal, Pressable, ActivityIndicator, Linking,
@@ -42,7 +43,8 @@ interface SOSPerson {
 const NARCAN_PURPLE = '#8B5CF6'
 const NARCAN_ICON = '💊'
 const UCLA_CENTER = { lat: 34.0709, lng: -118.444 }
-const VOLUNTEER_DEFAULT_LOCATION = { lat: 34.0705555556, lng: -118.4502777778, label: '34°4\'14"N 118°27\'1"W' }
+const VOLUNTEER_DEFAULT_LOCATION = { lat: 34.0744166667, lng: -118.4391666667, label: '34° 04′ 27.9″ N, 118° 26′ 21.0″ W' }
+const USER_DEFAULT_LOCATION = { lat: 34.069629, lng: -118.449129 }
 
 const PLACE_TYPES = [
   { id: 'ucla_narcan', name: 'UCLA Narcan', icon: NARCAN_ICON, markerColor: NARCAN_PURPLE, query: null },
@@ -86,7 +88,7 @@ const INFO_ROWS = [
   ['Session storage', 'Device only'],
   ['Location access', 'On demand only'],
 ]
-
+ 
 // Mock SOS queue data
 const MOCK_SOS_QUEUE: Omit<SOSPerson, 'dist'>[] = [
   { id: 'sos_1', firstName: 'Alex', lat: 34.0745, lng: -118.4428, resourceNeeded: 'naloxone', volunteersYes: 2 },
@@ -118,13 +120,17 @@ async function fetchNearby(lat: number, lng: number, type: typeof PLACE_TYPES[0]
       return {
         id: `${type.id}_${i}`,
         name: el.tags?.name || type.name,
-        lat: elat, lng: elng,
-        type: type.id, icon: type.icon,
+        lat: elat,
+        lng: elng,
+        type: type.id,
+        icon: type.icon,
         markerColor: type.markerColor,
         dist: haversine({ lat, lng }, { lat: elat, lng: elng }).toFixed(1),
       }
     })
-  } catch { return [] }
+  } catch {
+    return []
+  }
 }
 
 function withDistances(sites: Omit<Place, 'dist'>[], origin?: { lat: number; lng: number }): Place[] {
@@ -171,12 +177,52 @@ export default function ProfileScreen() {
   })
   const [selectedSOSPerson, setSelectedSOSPerson] = useState<SOSPerson | null>(null)
   const [volunteersHelpingState, setVolunteersHelpingState] = useState<Record<string, boolean>>({})
+  const [volunteerMarkerCoord, setVolunteerMarkerCoord] = useState({
+    latitude: VOLUNTEER_DEFAULT_LOCATION.lat,
+    longitude: VOLUNTEER_DEFAULT_LOCATION.lng,
+  })
 
   const mapRef = useRef<MapView>(null)
 
   useEffect(() => { 
     loadLocationAndPlaces()
   }, [])
+
+  // On every map focus, reset the volunteer marker and replay the motion to the user location.
+  useFocusEffect(
+    useCallback(() => {
+      const durationMs = 7000
+      const fromLat = VOLUNTEER_DEFAULT_LOCATION.lat
+      const fromLng = VOLUNTEER_DEFAULT_LOCATION.lng
+      const toLat = USER_DEFAULT_LOCATION.lat
+      const toLng = USER_DEFAULT_LOCATION.lng
+      const startAt = Date.now()
+      let frameId = 0
+
+      setVolunteerMarkerCoord({
+        latitude: fromLat,
+        longitude: fromLng,
+      })
+
+      const animate = () => {
+        const elapsed = Date.now() - startAt
+        const t = Math.min(elapsed / durationMs, 1)
+        const eased = t * t * (3 - 2 * t)
+
+        setVolunteerMarkerCoord({
+          latitude: fromLat + (toLat - fromLat) * eased,
+          longitude: fromLng + (toLng - fromLng) * eased,
+        })
+
+        if (t < 1) {
+          frameId = requestAnimationFrame(animate)
+        }
+      }
+
+      frameId = requestAnimationFrame(animate)
+      return () => cancelAnimationFrame(frameId)
+    }, [])
+  )
 
   // When an emergency is started in the app, add the current user to the SOS queue.
   // Do not add duplicates (based on a stable id or firstName).
@@ -334,7 +380,7 @@ export default function ProfileScreen() {
             ))}
             <Marker
               key="user-default-location-full"
-              coordinate={{ latitude: 34.069629, longitude: -118.449129 }}
+              coordinate={{ latitude: USER_DEFAULT_LOCATION.lat, longitude: USER_DEFAULT_LOCATION.lng }}
               title="Your default location"
               anchor={{ x: 0.5, y: 0.5 }}
               zIndex={998}
@@ -347,7 +393,7 @@ export default function ProfileScreen() {
             {shouldShowVolunteerLocation ? (
               <Marker
                 key="volunteer-location-full"
-                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
+                coordinate={volunteerMarkerCoord}
                 title="Volunteer location"
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={999}
@@ -445,7 +491,7 @@ export default function ProfileScreen() {
             ))}
             <Marker
               key="user-default-location-card"
-              coordinate={{ latitude: 34.069629, longitude: -118.449129 }}
+              coordinate={{ latitude: USER_DEFAULT_LOCATION.lat, longitude: USER_DEFAULT_LOCATION.lng }}
               title="Your location"
               anchor={{ x: 0.5, y: 0.5 }}
               zIndex={998}
@@ -458,7 +504,7 @@ export default function ProfileScreen() {
             {shouldShowVolunteerLocation ? (
               <Marker
                 key="volunteer-location-card"
-                coordinate={{ latitude: VOLUNTEER_DEFAULT_LOCATION.lat, longitude: VOLUNTEER_DEFAULT_LOCATION.lng }}
+                coordinate={volunteerMarkerCoord}
                 title="Volunteer"
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={999}
